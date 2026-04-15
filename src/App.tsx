@@ -21,13 +21,18 @@ const AppContent = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let hasCheckedAuth = false;
+
     // Check auth state on load
     const checkAuth = async () => {
       try {
         const user = await getCurrentUser();
-        if (user) {
-          // Already logged in, redirect to dashboard
-          navigate("/dashboard", { replace: true });
+        if (user && !hasCheckedAuth) {
+          // Already logged in, redirect to dashboard only if coming from auth page
+          const fromAuth = window.history.state?.usr?.from === "/auth";
+          if (fromAuth) {
+            navigate("/dashboard", { replace: true });
+          }
         }
       } catch (e) {
         console.error("Auth check failed:", e);
@@ -39,8 +44,13 @@ const AppContent = () => {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      hasCheckedAuth = true;
       if (session) {
-        navigate("/dashboard", { replace: true });
+        // Only redirect if on landing or auth page
+        const currentPath = window.location.pathname;
+        if (currentPath === "/" || currentPath === "/auth") {
+          navigate("/dashboard", { replace: true });
+        }
       } else if (event === "SIGNED_OUT") {
         navigate("/", { replace: true });
       }

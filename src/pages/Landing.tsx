@@ -104,7 +104,7 @@ const Landing = () => {
         <div className="max-w-[600px] mx-auto text-center">
           <p className="font-mono text-xs text-muted-foreground mb-4">Run your first audit in seconds</p>
           <Link
-            to="/"
+            to="/dashboard"
             className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold text-sm hover:opacity-85 transition-opacity"
           >
             Audit a Repo →
