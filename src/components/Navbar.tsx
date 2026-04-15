@@ -47,15 +47,33 @@ const Navbar = () => {
 
       {/* Desktop Menu */}
       <ul className="hidden md:flex items-center gap-8 list-none">
+        {/* Always show nav links if logged in, or if not on dashboard */}
         {user ? (
-          <li>
-            <button
-              onClick={handleSignOut}
-              className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Sign Out
-            </button>
-          </li>
+          <>
+            <li>
+              <Link to="/pricing" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                Pricing
+              </Link>
+            </li>
+            <li>
+              <Link to="/features" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                Features
+              </Link>
+            </li>
+            <li>
+              <Link to="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                Docs
+              </Link>
+            </li>
+            <li>
+              <button
+                onClick={handleSignOut}
+                className="font-mono text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-85 transition-opacity"
+              >
+                Sign Out
+              </button>
+            </li>
+          </>
         ) : (
           <>
             {!isDashboard && (
@@ -102,14 +120,43 @@ const Navbar = () => {
         <div className="absolute top-[60px] left-0 right-0 bg-background border-b border-border p-4 md:hidden">
           <ul className="flex flex-col gap-4 list-none">
             {user ? (
-              <li>
-                <button
-                  onClick={() => { handleSignOut(); setMobileMenuOpen(false); }}
-                  className="block w-full text-left font-mono text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Sign Out
-                </button>
-              </li>
+              <>
+                <li>
+                  <Link 
+                    to="/pricing" 
+                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Pricing
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    to="/features" 
+                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Features
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    to="/docs" 
+                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Docs
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    onClick={() => { handleSignOut(); setMobileMenuOpen(false); }}
+                    className="block w-full text-left font-mono text-sm font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md text-center"
+                  >
+                    Sign Out
+                  </button>
+                </li>
+              </>
             ) : (
               <>
                 {!isDashboard && (

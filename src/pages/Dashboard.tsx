@@ -336,18 +336,7 @@ const Dashboard = () => {
         </section>
       )}
 
-      {/* Footer */}
-      <footer className="py-8 px-6 md:px-10 border-t border-border">
-        <div className="max-w-[1100px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="font-mono text-xs text-muted-foreground">AudiCode © 2026</p>
-          <button
-            onClick={handleSignOut}
-            className="font-mono text-xs text-muted-foreground hover:text-foreground"
-          >
-            Sign Out
-          </button>
-        </div>
-      </footer>
+      {/* Footer - removed sign out button, now in navbar */}
     </>
   );
 };
