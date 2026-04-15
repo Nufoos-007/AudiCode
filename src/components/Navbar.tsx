@@ -27,14 +27,14 @@ const Navbar = () => {
               </Link>
             </li>
             <li>
-              <a href="#features" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+              <Link to="/features" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
                 Features
-              </a>
+              </Link>
             </li>
             <li>
-              <a href="#" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+              <Link to="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
                 Docs
-              </a>
+              </Link>
             </li>
           </>
         )}

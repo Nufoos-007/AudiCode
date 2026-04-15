@@ -1,23 +1,31 @@
+import { useEffect, useState } from "react";
+
 interface ScoreRingProps {
   score: number;
   grade: string;
 }
 
 const ScoreRing = ({ score, grade }: ScoreRingProps) => {
+  const [animatedScore, setAnimatedScore] = useState(0);
   const circumference = 2 * Math.PI * 26;
-  const offset = circumference - (score / 100) * circumference;
+  const offset = circumference - (animatedScore / 100) * circumference;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAnimatedScore(score), 100);
+    return () => clearTimeout(timer);
+  }, [score]);
 
   const getColor = () => {
-    if (score <= 30) return "hsl(var(--severity-critical))";
-    if (score <= 50) return "hsl(var(--severity-high))";
-    if (score <= 70) return "hsl(var(--severity-medium))";
+    if (score <= 30) return "hsl(var(--destructive))";
+    if (score <= 50) return "#f97316";
+    if (score <= 70) return "#eab308";
     return "hsl(var(--primary))";
   };
 
   const getTextColor = () => {
-    if (score <= 30) return "text-severity-critical";
-    if (score <= 50) return "text-severity-high";
-    if (score <= 70) return "text-severity-medium";
+    if (score <= 30) return "text-destructive";
+    if (score <= 50) return "text-orange-500";
+    if (score <= 70) return "text-yellow-500";
     return "text-primary";
   };
 
@@ -27,12 +35,16 @@ const ScoreRing = ({ score, grade }: ScoreRingProps) => {
         <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
           <circle cx="32" cy="32" r="26" fill="none" stroke="hsl(var(--border))" strokeWidth="6" />
           <circle
-            cx="32" cy="32" r="26" fill="none"
+            cx="32"
+            cy="32"
+            r="26"
+            fill="none"
             stroke={getColor()}
             strokeWidth="6"
             strokeDasharray={circumference}
             strokeDashoffset={offset}
             strokeLinecap="round"
+            className="transition-all duration-700"
           />
         </svg>
         <div className={`absolute inset-0 flex items-center justify-center text-base font-extrabold ${getTextColor()}`}>
