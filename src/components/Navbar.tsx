@@ -40,7 +40,7 @@ const Navbar = () => {
         )}
         <li>
           <Link
-            to="/"
+            to="/auth"
             className="font-mono text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-85 transition-opacity"
           >
             Get Started
