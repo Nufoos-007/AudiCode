@@ -53,7 +53,9 @@ const Landing = () => {
 
         {/* Input */}
         <div className="relative z-10 mt-12 w-full flex justify-center">
-          <HeroInput />
+          <div className="w-full max-w-[560px]">
+            <HeroInput />
+          </div>
         </div>
 
         {/* Stats */}

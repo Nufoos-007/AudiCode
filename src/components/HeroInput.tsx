@@ -26,8 +26,6 @@ const HeroInput = () => {
       }
 
       const repoInfo = await fetchRepoInfo(repo);
-      
-      // Store repo info for dashboard
       sessionStorage.setItem("auditRepo", JSON.stringify(repoInfo));
       navigate("/dashboard");
     } catch (err: any) {
@@ -37,10 +35,7 @@ const HeroInput = () => {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex w-full max-w-[560px] flex-col"
-    >
+    <form onSubmit={handleSubmit} className="w-full">
       <div
         className="flex w-full"
         style={{
