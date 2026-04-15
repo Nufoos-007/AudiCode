@@ -1,11 +1,35 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Github } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Menu, X, Github, Loader2 } from "lucide-react";
+import { supabase, getCurrentUser } from "../lib/supabase";
 
 const Navbar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isDashboard = location.pathname === "/dashboard";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      setLoading(false);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigate("/");
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center justify-between px-4 md:px-10 bg-background/80 backdrop-blur-xl border-b border-border">
@@ -23,33 +47,46 @@ const Navbar = () => {
 
       {/* Desktop Menu */}
       <ul className="hidden md:flex items-center gap-8 list-none">
-        {!isDashboard && (
+        {user ? (
+          <li>
+            <button
+              onClick={handleSignOut}
+              className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Sign Out
+            </button>
+          </li>
+        ) : (
           <>
+            {!isDashboard && (
+              <>
+                <li>
+                  <Link to="/pricing" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                    Pricing
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/features" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                    Features
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
+                    Docs
+                  </Link>
+                </li>
+              </>
+            )}
             <li>
-              <Link to="/pricing" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
-                Pricing
-              </Link>
-            </li>
-            <li>
-              <Link to="/features" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
-                Features
-              </Link>
-            </li>
-            <li>
-              <Link to="/docs" className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors tracking-wide">
-                Docs
+              <Link
+                to="/auth"
+                className="font-mono text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-85 transition-opacity"
+              >
+                Get Started
               </Link>
             </li>
           </>
         )}
-        <li>
-          <Link
-            to="/auth"
-            className="font-mono text-xs font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md hover:opacity-85 transition-opacity"
-          >
-            Get Started
-          </Link>
-        </li>
       </ul>
 
       {/* Mobile Menu Button */}
@@ -61,49 +98,62 @@ const Navbar = () => {
       </button>
 
       {/* Mobile Menu Dropdown */}
-      {mobileMenuOpen && (
+      {mobileMenuOpen && !loading && (
         <div className="absolute top-[60px] left-0 right-0 bg-background border-b border-border p-4 md:hidden">
           <ul className="flex flex-col gap-4 list-none">
-            {!isDashboard && (
+            {user ? (
+              <li>
+                <button
+                  onClick={() => { handleSignOut(); setMobileMenuOpen(false); }}
+                  className="block w-full text-left font-mono text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Sign Out
+                </button>
+              </li>
+            ) : (
               <>
+                {!isDashboard && (
+                  <>
+                    <li>
+                      <Link 
+                        to="/pricing" 
+                        className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Pricing
+                      </Link>
+                    </li>
+                    <li>
+                      <Link 
+                        to="/features" 
+                        className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Features
+                      </Link>
+                    </li>
+                    <li>
+                      <Link 
+                        to="/docs" 
+                        className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        Docs
+                      </Link>
+                    </li>
+                  </>
+                )}
                 <li>
-                  <Link 
-                    to="/pricing" 
-                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
+                  <Link
+                    to="/auth"
+                    className="block font-mono text-sm font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md text-center"
                     onClick={() => setMobileMenuOpen(false)}
                   >
-                    Pricing
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    to="/features" 
-                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Features
-                  </Link>
-                </li>
-                <li>
-                  <Link 
-                    to="/docs" 
-                    className="block font-mono text-sm text-muted-foreground hover:text-foreground"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Docs
+                    Get Started
                   </Link>
                 </li>
               </>
             )}
-            <li>
-              <Link
-                to="/auth"
-                className="block font-mono text-sm font-semibold bg-primary text-primary-foreground px-4 py-2 rounded-md text-center"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Get Started
-              </Link>
-            </li>
           </ul>
         </div>
       )}

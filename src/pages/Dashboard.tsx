@@ -73,17 +73,28 @@ const Dashboard = () => {
     setShowRepos(true);
     
     try {
-      // Get session token
+      // Get session to check for GitHub provider token
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        console.error("No session token");
+      if (!session) {
+        console.error("No session");
+        setLoadingRepos(false);
+        return;
+      }
+
+      // For GitHub OAuth, use provider_token if available, otherwise access_token won't work with GitHub API
+      const token = session.provider_token || session.access_token;
+      
+      // If no GitHub token, need to ask user to sign in with GitHub for repo access
+      if (!token) {
+        console.warn("No GitHub token - user may have signed up with email");
+        setUserRepos([]);
         setLoadingRepos(false);
         return;
       }
 
       const response = await fetch("https://api.github.com/user/repos?per_page=50&sort=updated", {
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github.v3+json",
         },
       });
