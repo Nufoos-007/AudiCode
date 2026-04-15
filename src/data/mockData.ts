@@ -20,7 +20,7 @@ export const mockVulnerabilities: Vulnerability[] = [
       "Your Django SECRET_KEY is committed to the repo. Anyone with access to your code can forge session cookies and impersonate any user.",
     file: "config/settings.py",
     line: 23,
-    badCode: `SECRET_KEY = "django-insecure-x7k!m3@p9q#r2s5t8v0w"`,
+    badCode: `// SECREY_KEY = "<DANGEROUS_EXAMPLE_NO_SECRET>"`,
     fixedCode: `SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")`,
   },
   {
