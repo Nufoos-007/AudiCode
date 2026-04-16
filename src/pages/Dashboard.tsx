@@ -367,8 +367,8 @@ const Dashboard = () => {
               <div className="mb-6 p-6 bg-surface border border-border rounded-xl flex items-center justify-center gap-4">
                 <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 <div>
-                  <p className="font-mono text-sm">Analyzing {analyzingRepo}</p>
-                  <p className="text-xs text-muted-foreground">Scanning for vulnerabilities...</p>
+                  <p className="font-mono text-sm">Analyzing {analyzingRepo}...</p>
+                  <p className="text-xs text-muted-foreground">Fetching files, scanning for vulnerabilities →</p>
                 </div>
               </div>
             )}
