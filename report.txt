@@ -1,7 +1,7 @@
 ================================================================================
-                       AudiCode - Project Report
-                    AI-Powered Security Scanner for 
-                     Vibe-Coded (AI-Generated) Apps
+                        AudiCode - Project Report
+                     AI-Powered Security Scanner for 
+                      Vibe-Coded (AI-Generated) Apps
 ================================================================================
 
 ## 1. Project Overview
@@ -48,7 +48,7 @@ real-time async scanning, confidence scoring, and actionable fixes.
 ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
 │   Frontend   │────▶│  /api/jobs   │────▶│  Supabase   │
 │  (Dashboard)│     │  (REST API)  │     │  (Jobs DB)  │
-└──────────────┘     └───────────────┘     └──────────────┘
+└──────────────┘     ��─��─────────────┘     └──────────────┘
                             │
                             ▼
                      ┌───────────────┐
@@ -69,6 +69,11 @@ real-time async scanning, confidence scoring, and actionable fixes.
                      └───────────────┘
 ```
 
+### Frontend Polling:
+- Dashboard polls /api/jobs every 2 seconds
+- Progress bar shows scan status
+- Auto-scrolls to results on completion
+
 ### Authentication:
 1. User visits https://audi-code.vercel.app
 2. OAuth via Supabase (GitHub or Google)
@@ -83,7 +88,8 @@ real-time async scanning, confidence scoring, and actionable fixes.
    - Scans files (50+ patterns)
    - Checks dependencies (CVE)
    - Stores results in Supabase
-4. GET /api/jobs?jobId=XXX polls for results
+4. Frontend polls /api/jobs?jobId=XXX for results
+5. Results fetched when status = "completed"
 
 ================================================================================
 ## 4. Database Schema (Supabase)
@@ -151,9 +157,7 @@ created_at (TIMESTAMP)
 ================================================================================
 ## 5. API Endpoints
 
-### POST /api/jobs
-Create async scan job.
-
+### POST /api/jobs (Create Job)
 Request:
 ```json
 {
@@ -172,14 +176,29 @@ Response (202):
 }
 ```
 
-### GET /api/jobs?jobId=xxx
-Get job status and results.
+### POST /api/jobs (Get Status)
+Request:
+```json
+{
+  "jobId": "uuid"
+}
+```
 
 Response:
 ```json
 {
   "id": "uuid",
   "repo_url": "...",
+  "status": "running",
+  "progress": 50,
+  ...
+}
+```
+
+When completed:
+```json
+{
+  "id": "uuid",
   "status": "completed",
   "progress": 100,
   "score": 75,
@@ -187,7 +206,6 @@ Response:
   "confidence": 85,
   "files_scanned": 42,
   "vulnerabilities": [...],
-  "created_at": "...",
   "completed_at": "..."
 }
 ```
@@ -229,7 +247,8 @@ Response:
 
 ### File Filtering
 - Skips test files
-- Skips node_modules
+- Skips node_modules, dist
+- Excludes scanner's own code (api/scan.ts)
 - Max file size: 40KB
 - Max files: 40
 
@@ -277,8 +296,9 @@ Action types:
 - [x] Async job system
 - [x] Supabase persistence
 - [x] Rate limiting
-- [x] Progress tracking
+- [x] Progress tracking with polling
 - [x] Credits system
+- [x] Frontend integration
 
 ### Phase 2 (Next)
 - [ ] AI explanation layer (Gemini)
@@ -299,9 +319,9 @@ Action types:
 /home/nufoos/Projects/code-guardian-ui/
 ├── api/
 │   ├── scan.ts          # Legacy sync scanner
-│   └── jobs.ts          # Async job system + Supabase
+│   └── jobs.ts         # Async job system + Supabase
 ├── supabase/
-│   └── schema.sql       # Database schema
+│   └── schema.sql      # Database schema
 ├── src/
 │   ├── pages/
 │   │   ├── Landing.tsx
@@ -309,8 +329,15 @@ Action types:
 │   │   ├── Auth.tsx
 │   │   └── ...
 │   ├── components/
+│   │   ├── ScoreRing.tsx
+│   │   ├── VulnerabilityCard.tsx
+│   │   ├── CreditsBar.tsx
+│   │   └── ...
 │   └── lib/
-├── report.txt           # This report
+│       ├── supabase.ts
+│       └── github.ts
+├── report.txt          # This report
+├── .env.local          # Environment vars
 └── package.json
 ```
 
@@ -319,14 +346,33 @@ Action types:
 
 - **Frontend**: https://audi-code.vercel.app
 - **GitHub**: https://github.com/Nufoos-007/AudiCode
+- **Supabase**: https://bkpifjpeaitfoiqulgaw.supabase.co
 
 ================================================================================
-## 13. Summary
+## 13. Environment Variables
+
+### Local (.env.local)
+```
+VITE_GITHUB_TOKEN=ghp_xxx
+VITE_SUPABASE_URL=https://bkpifjpeaitfoiqulgaw.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJxxx
+SUPABASE_SERVICE_KEY=eyJxxx
+```
+
+### Vercel (Production)
+```
+SUPABASE_URL=https://bkpifjpeaitfoiqulgaw.supabase.co
+SUPABASE_SERVICE_KEY=eyJxxx
+```
+
+================================================================================
+## 14. Summary
 
 AudiCode is now a production-ready async vulnerability scanner with:
 
 ✅ Supabase-backed persistence
 ✅ Async job processing with progress
+✅ Frontend polling for real-time updates
 ✅ Rate limiting for safety
 ✅ Credits/monetization system
 ✅ Confidence scoring (40-95)

@@ -163,11 +163,13 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
       .update({ progress: 50 })
       .eq("id", jobId);
 
-    // Scan files
+    // Scan files with AST analyzer
     const vulnerabilities: any[] = [];
-    for (const file of files) {
-      const findings = OWASPScanner(file);
-      vulnerabilities.push(...findings);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const { analyzeFile } = await import("./scanner/analyzer");
+      const result = analyzeFile(file.content, file.path);
+      vulnerabilities.push(...result.findings);
     }
 
     await supabase
