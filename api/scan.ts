@@ -44,10 +44,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (contentsRes.ok) {
       const contents = await contentsRes.json();
-      const fileList = Array.isArray(contents) ? contents.slice(0, 30) : [];
+      const fileList = Array.isArray(contents) ? contents.slice(0, 50) : [];
       
       for (const file of fileList) {
-        if (file.type === "file" && file.size < 100000 && isCodeFile(file.path)) {
+        if (file.type === "file") {
+          const fileRes = await fetch(file.download_url, { headers });
+          if (fileRes.ok) {
+            const content = await fileRes.text();
+            if (isCodeFile(file.path) || file.size < 50000) {
           const fileRes = await fetch(file.download_url, { headers });
           if (fileRes.ok) {
             const content = await fileRes.text();
@@ -110,12 +114,25 @@ interface Vulnerability {
 }
 
 function isCodeFile(path: string): boolean {
+  // Allow all relevant files
+  const ext = path.split(".").pop()?.toLowerCase();
   const codeExtensions = [
     "js", "jsx", "ts", "tsx", "py", "rb", "go", "rs", "java", "kt",
-    "swift", "php", "cs", "c", "cpp", "h", "hpp", "scala", "vue"
+    "swift", "php", "cs", "c", "cpp", "h", "hpp", "scala", "vue",
+    "json", "yaml", "yml", "toml", "ini", "cfg", "conf", "sh", "bash", "zsh",
   ];
-  const ext = path.split(".").pop()?.toLowerCase();
-  return codeExtensions.includes(ext || "") || path.includes("/src/");
+  if (codeExtensions.includes(ext || "")) return true;
+  
+  // Allow important config files
+  const importantFiles = [
+    "package.json", "requirements.txt", "setup.py", "Pipfile", "pyproject.toml",
+    "Dockerfile", "docker-compose.yml", ".dockerignore", ".gitignore",
+    "Makefile", "CMakeLists.txt", "webpack.config.js", "vite.config.ts",
+    "next.config.js", "tsconfig.json", "babel.config.js", ".env",
+  ];
+  if (importantFiles.includes(path)) return true;
+  
+  return path.includes("/src/") || path.includes("/lib/") || path.includes("/core/") || path.includes("/app/");
 }
 
 function getLanguage(filename: string): string {
