@@ -1,0 +1,296 @@
+================================================================================
+                          AudiCode - Project Report
+================================================================================
+
+## 1. Project Overview
+
+AudiCode is an AI-powered security vulnerability scanner designed specifically 
+for "vibe-coded" (AI-generated) applications. It analyzes GitHub repositories 
+to detect common security vulnerabilities introduced by AI coding assistants.
+
+Mission: Make AI-generated code secure by automating security audits.
+
+================================================================================
+## 2. Technology Stack
+
+### Frontend
+- React 18 with TypeScript
+- Vite (build tool)
+- TailwindCSS (styling)
+- Supabase (authentication - GitHub + Google OAuth)
+- React Router DOM (routing)
+- TanStack React Query (state management)
+- Lucide React (icons)
+
+### Backend (API)
+- Vercel Serverless Functions (API routes)
+- TypeScript
+
+### Deployment
+- Vercel (Frontend + API)
+- GitHub (source control)
+
+### External APIs
+- GitHub REST API (repo analysis)
+- GitHub Advisory API (dependency vulnerabilities)
+
+================================================================================
+## 3. Architecture
+
+### System Flow:
+
+```
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Frontend  │────▶│  /api/scan  │────▶│  GitHub API  │
+│  ( Landing)│     │  (Vercel)   │     │  (REST)      │
+│  (Dashboard│     │             │     └──────────────┘
+│   Auth    ) │     └──────────────┘
+└─────────────┘            │
+                          ▼
+                  ┌──────────────┐
+                  │ File Scanner │
+                  │  (Patterns)  │
+                  └──────────────┘
+                          │
+                          ▼
+                  ┌──────────────┐
+                  │ Vulnerability │
+                  │   Analysis   │
+                  └──────────────┘
+                          │
+                          ▼
+                  ┌──────────────┐
+                  │   Results    │
+                  │  (Score +   │
+                  │   Fixes)    │
+                  └──────────────┘
+```
+
+### Authentication Flow:
+1. User visits AudiCode
+2. Clicks "Get Started" → /auth
+3. Chooses GitHub or Google OAuth
+4. Supabase handles OAuth
+5. User redirected to /dashboard
+
+### Scan Flow:
+1. User enters GitHub repo URL OR selects from their repos
+2. Frontend passes URL + GitHub token to /api/scan
+3. API clones repo recursively via GitHub API
+4. Each file scanned against 50+ vulnerability patterns
+5. Dependencies checked against GitHub Advisory Database
+6. Results returned with severity, fixes, OWASP category
+
+================================================================================
+## 4. Scanner Implementation
+
+### Detection Methods:
+
+#### Pattern Matching (Regex-based)
+The scanner uses regex patterns to detect known vulnerability signatures:
+
+```typescript
+// Example rules from api/scan.ts
+const OWASP_RULES = [
+  // SQL Injection
+  { pattern: /execute\s*\(\s*["'][^"']*\${\s*\w+\s*["']/g, 
+    severity: "critical", title: "SQL Injection" },
+  
+  // Hardcoded Secrets  
+  { pattern: /sk-[a-zA-Z0-9]{48}/g,
+    severity: "critical", title: "OpenAI Key Exposed" },
+    
+  // Weak Crypto
+  { pattern: /crypto\.createHash\s*\(\s*["']md5["']\)/g,
+    severity: "high", title: "Weak Hash (MD5)" },
+    
+  // XSS
+  { pattern: /\.dangerouslySetInnerHTML\s*=/g,
+    severity: "high", title: "React XSS Risk" },
+  // ... 50+ more rules
+];
+```
+
+#### File Filtering
+- Skips test files (.test., .spec., .mock.)
+- Skips node_modules
+- Skips build/dist folders
+- Limits to files < 50KB
+
+#### Dependency Checking
+- Fetches GitHub Advisory Database: GET /advisories?ecosystem=pip&package=NAME
+- Compares against package.json/requirements.txt
+
+================================================================================
+## 5. Vulnerability Categories (OWASP Top 10)
+
+### A01: Broken Access Control
+- Unprotected API routes
+- Missing Supabase RLS policies  
+- Public admin endpoints
+
+### A02: Cryptographic Failures
+- Hardcoded API keys/secrets
+- Weak hashing (MD5, SHA1)
+- Insecure random (Math.random())
+- JWT secrets in code
+
+### A03: Injection
+- SQL Injection (template strings, f-strings)
+- NoSQL Injection
+- Command Injection (eval/exec/shell=True)
+- Code Injection
+
+### A04: Insecure Design
+- Missing rate limiting
+
+### A05: Security Misconfiguration
+- Wildcard CORS (*)
+- Debug mode enabled
+- Verbose error messages
+- Missing security headers
+
+### A06: Vulnerable Components
+- Outdated dependencies with CVEs
+- Git dependencies
+- Unverified packages
+
+### A07: Identification & Authentication Failures
+- Hardcoded passwords
+- Weak JWT configuration
+- Missing token expiration
+
+### A08: Software & Data Integrity Failures
+- Git dependencies (untrusted sources)
+- No integrity verification
+
+### A09: Security Logging & Monitoring Failures
+- Credentials in logs
+- Missing audit trails
+
+### A10: Server-Side Request Forgery (SSRF)
+- URL built from user input
+- No URL validation
+
+### Additional (Vibe-Coder Specific)
+- dangerouslySetInnerHTML (React XSS)
+- Hardcoded secrets (various services)
+- Math.random for tokens
+
+================================================================================
+## 6. Severity & Scoring
+
+### Severity Levels:
+- CRITICAL (50 points): Immediate action required
+- HIGH (20 points): Fix soon
+- MEDIUM (5 points): Consider fixing
+- LOW (1 points): Nice to fix
+
+### Score Calculation:
+```
+Deductions = sum of severity weights per UNIQUE file
+Score = max(0, 100 - deductions)
+Grade = A (90+), B (75+), C (60+), D (40+), F (<40)
+```
+
+================================================================================
+## 7. API Endpoints
+
+### POST /api/scan
+Request:
+```json
+{
+  "repoUrl": "https://github.com/owner/repo",
+  "token": "ghp_xxx"  // optional GitHub token for higher rate limits
+}
+```
+
+Response:
+```json
+{
+  "repo": {
+    "name": "owner/repo",
+    "description": "...",
+    "stars": 1234,
+    "language": "JavaScript",
+    "url": "https://github.com/owner/repo"
+  },
+  "scan": {
+    "filesScanned": 50,
+    "vulnerabilities": [
+      {
+        "id": "file.ts:42-Injection",
+        "severity": "critical",
+        "title": "SQL Injection",
+        "description": "String interpolation in SQL query",
+        "file": "src/db.ts",
+        "line": 42,
+        "code": "await db.execute(`SELECT * FROM users WHERE id = ${id}`)",
+        "fix": "Use parameterized queries",
+        "category": "Injection",
+        "cwe": "CWE-89",
+        "owasp": "A03"
+      }
+    ],
+    "score": 75,
+    "grade": "B",
+    "summary": { "critical": 1, "high": 2, "medium": 0, "low": 1 }
+  }
+}
+```
+
+================================================================================
+## 8. Current Vulnerabilities Detected (50+ patterns)
+
+| Category | Patterns |
+|----------|----------|
+| Secrets | OpenAI, xAI, AWS, GitHub, JWT, Stripe, Twilio keys |
+| SQL Injection | Template strings, f-strings, execute() |
+| Code Injection | eval(), exec(), pickle.loads |
+| Command Injection | shell=True, os.system() |
+| XSS | innerHTML, dangerouslySetInnerHTML |
+| Crypto | MD5, SHA1, Math.random |
+| Auth | Hardcoded JWT/Auth0, weak sessions |
+| CORS | Wildcard (*) |
+| SSRF | URL concatenation |
+| Config | DEBUG=True |
+| Logging | Credentials in console.log |
+| Supply Chain | Git dependencies, outdated packages |
+
+================================================================================
+## 9. Security Tools Integrated
+
+- npm audit (dependency vulnerabilities)
+- Vercel API (our scanner)
+- GitHub Advisory Database (CVE lookup)
+- GitHub CodeQL (setup ready in .github/workflows/)
+- Dependabot (dependency updates)
+
+================================================================================
+## 10. Known Limitations
+
+1. No taint tracking (basic regex patterns only)
+2. Cannot follow data flow between files
+3. GitHub API rate limits (60/hour without token)
+4. Limited to 50 files per scan
+5. Some false positives in scanner code detection
+
+================================================================================
+## 11. Future Improvements
+
+- [ ] Add AST-based analysis
+- [ ] Add taint tracking
+- [ ] Add cross-file analysis
+- [ ] Add AI-powered fix suggestions (Gemini)
+- [ ] Add credits system
+- [ ] Add PDF report generation
+- [ ] Add Slack/Discord integrations
+
+================================================================================
+
+Report generated: April 2026
+Project: AudiCode - AI-Powered Security Scanner for Vibe-Coded Apps
+Repository: https://github.com/Nufoos-007/AudiCode
+Live URL: https://audi-code.vercel.app
+
+================================================================================
