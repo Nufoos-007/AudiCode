@@ -205,11 +205,12 @@ const OWASP_RULES: Array<{
 function OWASPScanner(file: { path: string; content: string; language: string }): Vulnerability[] {
   const findings: Vulnerability[] = [];
   
-  // Skip test/mock files to reduce false positives
+  // Skip test/mock files and our own scanner to avoid false positives
   if (file.path.match(/\.(test|spec|mock)\.(ts|js|tsx|py)$/i)) return findings;
   if (file.path.includes("/node_modules/")) return findings;
   if (file.path.includes("/__pycache__/")) return findings;
   if (file.path.includes("dist/") || file.path.includes("build/")) return findings;
+  if (file.path.includes("api/scan.ts")) return findings;
   if (file.path.includes("components/ui/chart.tsx")) return findings;
   
   const content = file.content;
