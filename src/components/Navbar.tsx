@@ -28,6 +28,8 @@ const Navbar = () => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    sessionStorage.removeItem("auditRepo");
+    sessionStorage.removeItem("github_repos");
     navigate("/");
   };
 

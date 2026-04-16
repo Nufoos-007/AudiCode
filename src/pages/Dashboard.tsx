@@ -60,6 +60,16 @@ const Dashboard = () => {
       if (currentUser) {
         setUser(currentUser);
         
+        // Clear previous data if different user
+        const storedUser = sessionStorage.getItem("current_user_id");
+        if (storedUser !== currentUser.id) {
+          sessionStorage.removeItem("auditRepo");
+          sessionStorage.removeItem("github_repos");
+          setRepoInfo(null);
+          setHasAudited(false);
+        }
+        sessionStorage.setItem("current_user_id", currentUser.id);
+        
         // Check for audit URL in query params
         const auditUrl = searchParams.get("audit");
         if (auditUrl) {
