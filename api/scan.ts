@@ -193,27 +193,19 @@ const VULNERABILITY_RULES = [
   { pattern: /assert\s*\(/g, severity: "low", title: "Assert in Production", description: "Assert statements are removed in optimized code.", fix: "Use explicit validation.", category: "Best Practice" },
   { pattern: /console\.(log|debug|info)\s*\(/g, severity: "low", title: "Debug Statement Left", description: "Debug logging in production.", fix: "Use proper logging levels.", category: "Best Practice" },
   { pattern: /print\s*\(/g, severity: "low", title: "Print Statement in Code", description: "print() statement left in code.", fix: "Remove or use proper logging.", category: "Best Practice" },
-  { pattern: /TODO\b|FIXME\b|XXX\b|HACK\b/g, severity: "low", title: "Code Comment", description: "Incomplete code marker found.", fix: "Address the TODO/FIXME.", category: "Code Quality" },
-  { pattern: /password\s*=\s*input\s*\(\s*type\s*=\s*["']text["']/gi, severity: "high", title: "Plain Text Password Input", description: "Password input should have type='password'.", fix: "Use type='password' for password fields.", category: "敏感信息泄露" },
-  { pattern: /\{\{[\s]*[^}|]*cookies?/gi, severity: "medium", title: "Cookie in Template", description: "Cookies rendered in template could be exposed.", fix: "Don't render cookies in templates.", category: "Information Disclosure" },
+  { pattern: /password\s*=\s*input\s*\(\s*type\s*=\s*["']text["']/gi, severity: "medium", title: "Plain Text Password Input", description: "Password input should have type='password'.", fix: "Use type='password' for password fields.", category: "敏感信息泄露" },
   { pattern: /session\s*\.\s*store|express-session|cookie-session/g, severity: "low", title: "Session Management", description: "Session handling detected.", fix: "Ensure secure session configuration.", category: "Session Management" },
   { pattern: /jwt\.decode|jsonwebtoken/gi, severity: "low", title: "JWT Usage", description: "JWT library detected - verify signatures!", fix: "Always verify JWT signatures.", category: "Authentication" },
   { pattern: /bcrypt\.hash\s*\(\s*\)/gi, severity: "low", title: "Password Hashing", description: "Password hashing detected.", fix: "Ensure high iteration count (10+).", category: "Authentication" },
-  { pattern: /compare\s*\(\s*password/gi, severity: "medium", title: "Timing Attack Risk", description: "Direct comparison could be vulnerable to timing attacks.", fix: "Use constant-time comparison.", category: "Authentication" },
   { pattern: /\.pyc|\.pyo|__pycache__/g, severity: "low", title: "Python Cache File", description: "Python cache files committed.", fix: "Add to .gitignore.", category: "Configuration" },
   { pattern: /\.env(?!\s)|\.env\./g, severity: "low", title: "Environment File", description: "Environment file detected.", fix: "Ensure .env is in .gitignore.", category: "Configuration" },
   { pattern: /debug\s*=\s*True/gi, severity: "high", title: "Debug Mode Enabled", description: "Debug mode is enabled in production.", fix: "Set DEBUG=False in production.", category: "Configuration" },
-  { pattern: /allowed[_-]hosts/gi, severity: "medium", title: "Allowed Hosts Not Set", description: "ALLOWED_HOSTS not configured.", fix: "Set ALLOWED_HOSTS explicitly.", category: "Configuration" },
   { pattern: /cors\.\w*\*\(/g, severity: "high", title: "Permissive CORS", description: "CORS allowing all origins.", fix: "Restrict to specific domains.", category: "Access Control" },
-  { pattern: /http:\/\//g, severity: "medium", title: "Insecure HTTP", description: "Insecure HTTP URL detected.", fix: "Use HTTPS instead.", category: "Transport Security" },
   { pattern: /urlopen|urllib\.request/gi, severity: "medium", title: "Insecure URL Library", description: "Using urllib directly.", fix: "Use requests with verification.", category: "Transport Security" },
   { pattern: /verify\s*=\s*False/g, severity: "high", title: "Certificate Verification Disabled", description: "SSL verification disabled.", fix: "Set verify=True for production.", category: "Transport Security" },
   { pattern: /disable[_-]?[_-]?(web|api)[_-]?browsing[_-]?security/gi, severity: "high", title: "Security Header Missing", description: "Web security headers not set.", fix: "Use security middleware.", category: "Security Headers" },
   { pattern: /x[_-]?frame[_-]?options/gi, severity: "medium", title: "Clickjacking Protection", description: "X-Frame-Options not set.", fix: "Set to DENY or SAMEORIGIN.", category: "Security Headers" },
   { pattern: /content[_-]?security[_-]?policy/gi, severity: "medium", title: "CSP Not Set", description: "Content-Security-Policy not configured.", fix: "Configure CSP properly.", category: "Security Headers" },
-  { pattern: /proc\s*\/\s*self|os\.getpid\s*\(\s*\)/gi, severity: "low", title: "Process Information", description: "Process information exposed.", fix: "Avoid in production logs.", category: "Information Disclosure" },
-  { pattern: /username\s*=\s*["'][^"']+|user\s*=\s*["'][^"']+/gi, severity: "medium", title: "Hardcoded Username", description: "Hardcoded username detected.", fix: "Use environment variables.", category: "Hardcoded Credentials" },
-  { pattern: /database.*url|db.*url|sql.*url/gi, severity: "high", title: "Database URL Exposure", description: "Database connection URL could contain credentials.", fix: "Use environment variables for DB connections.", category: "Hardcoded Credentials" },
 ];
 
 function scanFile(file: { path: string; content: string; language: string }): Vulnerability[] {
@@ -346,24 +338,27 @@ function summarizeVulnerabilities(vulns: Vulnerability[]): Record<string, number
 }
 
 function calculateScore(vulnerabilities: Vulnerability[]): number {
-  const weights = { critical: 50, high: 25, medium: 10, low: 5 };
+  const weights = { critical: 50, high: 20, medium: 5, low: 1 };
   let deductions = 0;
   
   const uniqueByFile = new Map<string, number>();
   for (const v of vulnerabilities) {
     if (!uniqueByFile.has(v.file)) {
-      uniqueByFile.set(v.file, weights[v.severity]);
+      uniqueByFile.set(v.file, 1);
       deductions += weights[v.severity];
     }
   }
+  
+  // Cap deductions to not be overly harsh for large repos
+  deductions = Math.min(deductions, 85);
   
   return Math.max(0, 100 - deductions);
 }
 
 function calculateGrade(score: number): string {
   if (score >= 90) return "A";
-  if (score >= 80) return "B";
-  if (score >= 70) return "C";
-  if (score >= 60) return "D";
+  if (score >= 75) return "B";
+  if (score >= 60) return "C";
+  if (score >= 40) return "D";
   return "F";
 }
