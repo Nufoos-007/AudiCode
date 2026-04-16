@@ -11,6 +11,18 @@ import CreditsBar from "../components/CreditsBar";
 import { Severity } from "../types/audit";
 import { Loader2, FolderSearch, ChevronDown, ChevronRight } from "lucide-react";
 
+interface JobStatus {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  score?: number;
+  grade?: string;
+  confidence?: number;
+  files_scanned?: number;
+  error?: string;
+  vulnerabilities?: any[];
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -21,38 +33,96 @@ const Dashboard = () => {
   const [userRepos, setUserRepos] = useState<any[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [analyzingRepo, setAnalyzingRepo] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
+  const pollingRef = useRef<number | null>(null);
+
+  // Poll for job status - separate function to avoid stale closure
+  const pollJobStatus = useCallback(async (jobId: string, repoName: string) => {
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId }),
+      });
+
+      if (response.ok) {
+        const job: JobStatus = await response.json();
+        setJobStatus(job);
+
+        if (job.status === "completed" || job.status === "failed") {
+          clearInterval(pollingRef.current || 0);
+          pollingRef.current = null;
+          
+          if (job.status === "completed") {
+            const finalResult = {
+              ...job,
+              repo: { name: repoName },
+              scan: {
+                score: job.score,
+                grade: job.grade,
+                vulnerabilities: job.vulnerabilities || [],
+                confidence: job.confidence,
+                files_scanned: job.files_scanned,
+              },
+            };
+            
+            setRepoInfo(finalResult);
+            setHasAudited(true);
+            sessionStorage.setItem("auditRepo", JSON.stringify(finalResult));
+          } else {
+            console.error("Scan failed:", job.error);
+          }
+          setAnalyzingRepo(null);
+          
+          setTimeout(() => {
+            document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+          }, 300);
+        }
+      }
+    } catch (err) {
+      console.error("Polling error:", err);
+    }
+  }, []);
 
   // Auto-audit from URL if provided
   useEffect(() => {
     const doAutoAudit = async (repoUrl: string) => {
       setAnalyzingRepo(repoUrl);
       try {
-        // Get GitHub token from session
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.provider_token || session?.access_token;
+        const userId = session?.user?.id;
         
-        const response = await fetch("/api/scan", {
+        // Use async jobs API
+        const response = await fetch("/api/jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoUrl, token: token || undefined }),
+          body: JSON.stringify({ 
+            repoUrl, 
+            token: token || undefined,
+            userId: userId || undefined,
+          }),
         });
         
         if (response.ok) {
           const result = await response.json();
-          console.log("API Result:", result);
-          setRepoInfo(result);
-          setHasAudited(true);
-          sessionStorage.setItem("auditRepo", JSON.stringify(result));
+          console.log("Job created:", result);
           
-          setTimeout(() => {
-            document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
-          }, 500);
+          if (result.jobId) {
+            setCurrentJobId(result.jobId);
+            setJobStatus({ id: result.jobId, status: "queued", progress: 0 });
+            
+            const repoName = repoUrl.replace(/https?:\/\/github\.com\//, "");
+            pollingRef.current = window.setInterval(() => {
+              pollJobStatus(result.jobId, repoName);
+            }, 2000);
+          }
         }
       } catch (err) {
         console.error("Auto-audit failed:", err);
       }
-      setAnalyzingRepo(null);
     };
 
     const initUser = async () => {
@@ -100,6 +170,15 @@ const Dashboard = () => {
       return () => clearTimeout(timer);
     }
   }, [user]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
 
   const handleSignOut = useCallback(async () => {
     await signOut();
@@ -164,54 +243,43 @@ const Dashboard = () => {
     const repoUrl = repo.html_url || repo.full_name;
     const repoName = repo.full_name || `${repo.owner?.login}/${repo.name}`;
     setAnalyzingRepo(repoName);
+    setShowRepos(false);
     
     try {
-      // Get GitHub token from session
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.provider_token;
+      const userId = session?.user?.id;
       
-      // Call the API
-      const response = await fetch("/api/scan", {
+      const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl, token }),
+        body: JSON.stringify({ 
+          repoUrl, 
+          token: token || undefined,
+          userId: userId || undefined,
+        }),
       });
       
-      let scanResult;
       if (response.ok) {
-        scanResult = await response.json();
+        const result = await response.json();
+        
+        if (result.jobId) {
+          setCurrentJobId(result.jobId);
+          setJobStatus({ id: result.jobId, status: "queued", progress: 0 });
+          
+          pollingRef.current = window.setInterval(() => {
+            pollJobStatus(result.jobId, repoName);
+          }, 2000);
+        }
       } else {
-        // Fallback to mock if API fails
-        console.warn("API scan failed, using mock data");
-        scanResult = mockAuditResult;
+        console.error("Failed to create scan job");
+        setAnalyzingRepo(null);
       }
-      
-      const repoData = {
-        full_name: repoName,
-        name: repo.name,
-        description: repo.description || scanResult.repo?.description || "",
-        stargazers_count: repo.stargazers_count || scanResult.repo?.stars || 0,
-        language: repo.language || scanResult.repo?.language || "Unknown",
-        html_url: repo.html_url || "",
-        owner: { login: repo.owner?.login || user?.user_metadata?.user_name || "unknown" },
-      };
-      
-      // Store and update state
-      sessionStorage.setItem("auditRepo", JSON.stringify({ ...repoData, ...scanResult }));
-      setRepoInfo({ ...repoData, ...scanResult });
-      setHasAudited(true);
-      setShowRepos(false);
-      
-      // Scroll to results
-      setTimeout(() => {
-        document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 500);
     } catch (err) {
       console.error("Error analyzing repo:", err);
+      setAnalyzingRepo(null);
     }
-    
-    setAnalyzingRepo(null);
-  }, [analyzingRepo, user]);
+  }, [analyzingRepo, user, pollJobStatus]);
 
   const scoreData = repoInfo?.scan || repoInfo || mockAuditResult;
 
@@ -359,16 +427,27 @@ const Dashboard = () => {
       </section>
 
       {/* Results Section */}
-      {hasAudited && repoInfo && (
+      {(hasAudited || analyzingRepo) && (
         <section id="results" className="py-10 px-6 md:px-10 border-t border-border">
           <div className="max-w-[1100px] mx-auto">
-            {/* Analyzing Animation */}
-            {analyzingRepo && (
-              <div className="mb-6 p-6 bg-surface border border-border rounded-xl flex items-center justify-center gap-4">
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                <div>
-                  <p className="font-mono text-sm">Analyzing {analyzingRepo}...</p>
-                  <p className="text-xs text-muted-foreground">Fetching files, scanning for vulnerabilities →</p>
+            {/* Analyzing Animation with Progress */}
+            {analyzingRepo && jobStatus && (
+              <div className="mb-6 p-6 bg-surface border border-border rounded-xl">
+                <div className="flex items-center justify-center gap-4 mb-4">
+                  <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                  <div>
+                    <p className="font-mono text-sm">Analyzing {analyzingRepo}...</p>
+                    <p className="text-xs text-muted-foreground">
+                      {jobStatus.status === "queued" && "Waiting in queue..."}
+                      {jobStatus.status === "running" && `Scanning... ${jobStatus.progress}%`}
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div 
+                    className="bg-primary h-2 rounded-full transition-all duration-500" 
+                    style={{ width: `${jobStatus.progress}%` }}
+                  />
                 </div>
               </div>
             )}
