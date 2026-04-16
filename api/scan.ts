@@ -194,8 +194,18 @@ function scanFile(file: { path: string; content: string; language: string }): Vu
   const findings: Vulnerability[] = [];
   
   // Skip files that would cause false positives
-  const skipPaths = ["api/scan", "node_modules", "__pycache__", ".git", "dist/", "build/", "test/", "mock/", "fixture/", "example/", ".semgrep", ".github/"];
+  const skipPaths = ["node_modules", "__pycache__", ".git", "dist/", "build/", "test/", "mock/", "fixture/", "example/", ".semgrep"];
+  // Only skip specific files, not our scanner (we need to scan it!)
+  // But skip chart.tsx which has legitimate dangerouslySetInnerHTML for CSS theming
   if (skipPaths.some(p => file.path.includes(p))) {
+    return findings;
+  }
+  if (file.path.includes("components/ui/chart.tsx")) {
+    return findings;
+  }
+  
+  // Skip test files
+  if (file.path.match(/\.(test|spec|mock)\.(ts|js|tsx|py)$/i)) {
     return findings;
   }
   
