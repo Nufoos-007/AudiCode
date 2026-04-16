@@ -1,18 +1,39 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { parseRepoUrl, fetchRepoInfo } from "../lib/github";
+import { getCurrentUser, supabase } from "../lib/supabase";
 
 const HeroInput = () => {
   const [repoUrl, setRepoUrl] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const user = await getCurrentUser();
+      setIsLoggedIn(!!user);
+    };
+    checkAuth();
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session?.user);
+    });
+    
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoUrl.trim()) return;
+    
+    if (!isLoggedIn) {
+      navigate("/auth?redirect=" + encodeURIComponent("/dashboard?audit=" + encodeURIComponent(repoUrl)));
+      return;
+    }
     
     setIsLoading(true);
     setError("");

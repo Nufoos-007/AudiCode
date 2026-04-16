@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { User } from "@supabase/supabase-js";
 import { signOut, getCurrentUser, supabase } from "../lib/supabase";
 import HeroInput from "../components/HeroInput";
@@ -13,6 +13,7 @@ import { Loader2, FolderSearch, ChevronDown, ChevronRight } from "lucide-react";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState<User | null>(null);
   const [repoInfo, setRepoInfo] = useState<any>(null);
   const [hasAudited, setHasAudited] = useState(false);
@@ -22,29 +23,58 @@ const Dashboard = () => {
   const [analyzingRepo, setAnalyzingRepo] = useState<string | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
 
-  // Check user on mount
+  // Auto-audit from URL if provided
   useEffect(() => {
+    const doAutoAudit = async (repoUrl: string) => {
+      setAnalyzingRepo(repoUrl);
+      try {
+        const response = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repoUrl }),
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          setRepoInfo(result);
+          setHasAudited(true);
+          sessionStorage.setItem("auditRepo", JSON.stringify(result));
+          
+          setTimeout(() => {
+            document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+          }, 500);
+        }
+      } catch (err) {
+        console.error("Auto-audit failed:", err);
+      }
+      setAnalyzingRepo(null);
+    };
+
     const initUser = async () => {
       const currentUser = await getCurrentUser();
-      if (!currentUser) {
-        navigate("/");
-        return;
-      }
-      setUser(currentUser);
-      
-      // Check for previous audit
-      const stored = sessionStorage.getItem("auditRepo");
-      if (stored) {
-        try {
-          setRepoInfo(JSON.parse(stored));
-          setHasAudited(true);
-        } catch (e) {
-          sessionStorage.removeItem("auditRepo");
+      if (currentUser) {
+        setUser(currentUser);
+        
+        // Check for audit URL in query params
+        const auditUrl = searchParams.get("audit");
+        if (auditUrl) {
+          doAutoAudit(auditUrl);
+        }
+        
+        // Check for previous audit
+        const stored = sessionStorage.getItem("auditRepo");
+        if (stored) {
+          try {
+            setRepoInfo(JSON.parse(stored));
+            setHasAudited(true);
+          } catch (e) {
+            sessionStorage.removeItem("auditRepo");
+          }
         }
       }
     };
     initUser();
-  }, [navigate]);
+  }, [navigate, searchParams]);
 
   // Scroll to input after login
   useEffect(() => {
