@@ -168,7 +168,7 @@ const Dashboard = () => {
     setAnalyzingRepo(null);
   }, [analyzingRepo, user]);
 
-  const data = mockAuditResult;
+  const data = repoInfo?.scan || mockAuditResult;
 
   if (!user) {
     return (
