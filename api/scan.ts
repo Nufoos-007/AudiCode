@@ -34,13 +34,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const headers: Record<string, string> = {
       Accept: "application/vnd.github.v3+json",
     };
-    
     if (token) {
       headers.Authorization = `token ${token}`;
     }
-    
-    // Debug: log if we have a token
-    console.log("Token available:", !!token);
 
     const repoRes = await fetch(`https://api.github.com/repos/${repoName}`, { headers });
     if (!repoRes.ok) {
@@ -52,7 +48,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const repoData = await repoRes.json();
     const defaultBranch = repoData.default_branch;
 
-    // Collect all files recursively
     const files: Array<{ path: string; content: string; language: string }> = [];
     const scannedPaths = new Set<string>();
     
@@ -68,14 +63,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
         if (item.type === "file" && !scannedPaths.has(item.path)) {
           scannedPaths.add(item.path);
           
-          // Get content
           const fileRes = await fetch(item.download_url, { headers });
           if (fileRes.ok) {
             const content = await fileRes.text();
-            const ext = item.name.split(".").pop()?.toLowerCase();
             
-            // Skip binary and very large files
-            if (content.length < 50000 && !item.name.match(/\.(png|jpg|jpeg|gif|pdf|zip|tar|gz|lock)$/i)) {
+            if (content.length < 50000 && !item.name.match(/\.(png|jpg|jpeg|gif|pdf|zip|tar|gz|lock|svg)$/i)) {
               files.push({
                 path: item.path,
                 content,
@@ -84,7 +76,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
             }
           }
         } else if (item.type === "dir") {
-          // Limit depth
           const depth = item.path.split("/").length;
           if (depth < 5 && files.length < 50) {
             await fetchDir(item.path);
@@ -93,7 +84,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
     }
 
-    // Start fetching from root
     await fetchDir("");
 
     const allVulnerabilities: Vulnerability[] = [];
@@ -103,7 +93,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
       allVulnerabilities.push(...findings);
     }
 
-    // Check dependencies
     const dependencyVulns = await checkDependencies(files, repoName, headers);
     allVulnerabilities.push(...dependencyVulns);
 
@@ -144,91 +133,112 @@ function getLanguage(filename: string): string {
   return langMap[ext || ""] || "Unknown";
 }
 
-const SECRET_PATTERNS = [
-  { pattern: /sk-[a-zA-Z0-9]{48}/g, type: "OpenAI API key", severity: "critical" as const },
-  { pattern: /xAI-[a-zA-Z0-9]{32,}/g, type: "xAI API key", severity: "critical" as const },
-  { pattern: /gh[pousr]_[a-zA-Z0-9]{36,}/g, type: "GitHub Token", severity: "critical" as const },
-  { pattern: /AKIA[0-9A-Z]{16}/g, type: "AWS Access Key", severity: "critical" as const },
-  { pattern: /-----BEGIN PRIVATE KEY-----/g, type: "Private Key", severity: "critical" as const },
-  { pattern: /password\s*=\s*["'][^"']{8,}["']/gi, type: "Hardcoded Password", severity: "high" as const },
-  { pattern: /api[_-]?key\s*=\s*["'][^"']{16,}["']/gi, type: "API Key", severity: "high" as const },
-  { pattern: /secret[_-]?key\s*=\s*["'][^"']{16,}["']/gi, type: "Secret Key", severity: "high" as const },
-  { pattern: /bearer\s+[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, type: "JWT Token", severity: "high" as const },
-  { pattern: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/g, type: "JWT Token", severity: "high" as const },
-  { pattern: /stripe[_-]?(sk|pk)[a-zA-Z0-9]{24,}/gi, type: "Stripe Key", severity: "critical" as const },
-  { pattern: /twilio[_-]?(api[_-]?key|auth[_-]?token)/gi, type: "Twilio Credential", severity: "high" as const },
-];
-
-const VULNERABILITY_RULES: Array<{
+// More accurate rules with context checking
+const RULES: Array<{
   pattern: RegExp;
   severity: "critical" | "high" | "medium" | "low";
   title: string;
   description: string;
   fix: string;
-  category: string;
+  exclude?: RegExp;
+  requireContext?: string[];
 }> = [
-  { pattern: /eval\s*\(/g, severity: "critical", title: "Dangerous eval() Usage", description: "eval() can execute arbitrary code.", fix: "Use JSON.parse() or safe parser.", category: "Code Injection" },
-  { pattern: /exec\s*\(/g, severity: "critical", title: "Dangerous exec() Usage", description: "exec() executes shell commands.", fix: "Avoid exec().", category: "Code Injection" },
-  { pattern: /pickle\.loads\s*\(/g, severity: "critical", title: "Insecure Deserialization", description: "pickle can execute arbitrary code.", fix: "Use json instead.", category: "Insecure Deserialization" },
-  { pattern: /yaml\.load\s*\(/g, severity: "high", title: "Insecure YAML Parsing", description: "yaml.load can execute code.", fix: "Use yaml.safe_load().", category: "Code Injection" },
-  { pattern: /subprocess\.\w*\(\s*shell\s*=\s*True/g, severity: "critical", title: "Shell Injection", description: "shell=True is dangerous.", fix: "Use shell=False.", category: "Command Injection" },
-  { pattern: /os\.system\s*\(/g, severity: "high", title: "os.system() Usage", description: "Can be exploited.", fix: "Use subprocess.run().", category: "Command Injection" },
-  { pattern: /\.\s*innerHTML\s*=/g, severity: "high", title: "Potential XSS", description: "Direct innerHTML is risky.", fix: "Use textContent.", category: "XSS" },
-  { pattern: /dangerouslySetInnerHTML/g, severity: "high", title: "React XSS Risk", description: "Can lead to XSS.", fix: "Sanitize HTML.", category: "XSS" },
-  { pattern: /WHERE\s+\w+\s*=\s*["'][^"']*\%s["']|WHERE\s+\w+\s*=\s*f["']/gi, severity: "critical", title: "SQL Injection", description: "String concat in SQL.", fix: "Use parameterized queries.", category: "SQL Injection" },
-  { pattern: /cursor\.execute\s*\(\s*["'][^"']*\%s["']/gi, severity: "critical", title: "SQL Injection", description: "String concat in query.", fix: "Use parameterized queries.", category: "SQL Injection" },
-  { pattern: /crypto\.createHash\s*\(\s*["']md5["']/g, severity: "high", title: "Weak Crypto (MD5)", description: "MD5 is broken.", fix: "Use SHA-256.", category: "Insecure Cryptography" },
-  { pattern: /crypto\.createHash\s*\(\s*["']sha1["']/g, severity: "high", title: "Weak Crypto (SHA1)", description: "SHA1 is weak.", fix: "Use SHA-256.", category: "Insecure Cryptography" },
-  { pattern: /Access-Control-Allow-Origin\s*:\s*["']\*["']/g, severity: "high", title: "CORS Misconfiguration", description: "Allowing all origins.", fix: "Specify exact origins.", category: "Access Control" },
-  { pattern: /debug\s*=\s*True/gi, severity: "high", title: "Debug Mode", description: "Debug enabled.", fix: "Set DEBUG=False.", category: "Configuration" },
+  // SQL Injection - only when in execute/query context
+  { pattern: /execute\s*\(\s*["'][^"']*["']\.format\s*\(/g, severity: "critical", title: "SQL Injection via .format()", description: "String formatting in SQL query is dangerous.", fix: "Use parameterized queries with placeholders.", exclude: /#.*no.*sql/i },
+  { pattern: /execute\s*\(\s*f["'][^"']*SELECT/i, severity: "critical", title: "SQL Injection via f-string", description: "f-string in SQL query allows injection.", fix: "Use parameterized queries.", exclude: /#.*no.*sql/i },
+  
+  // Deserialization - only for pickle
+  { pattern: /pickle\.(loads|load)\s*\(/g, severity: "critical", title: "Insecure Deserialization (pickle)", description: "pickle can deserialize malicious code.", fix: "Use json or MessagePack instead.", exclude: /#.*safe|pickle\.safe/i },
+  
+  // YAML - only unsafe load
+  { pattern: /yaml\.load\s*\(\s*(?!.*safe)/g, severity: "high", title: "Insecure YAML Parsing", description: "yaml.load can execute arbitrary code.", fix: "Use yaml.safe_load() instead.", exclude: /safe_load|safe_load_all/i },
+  
+  // Shell injection - only when shell=True
+  { pattern: /subprocess\.\w+\(\s*shell\s*=\s*True/g, severity: "critical", title: "Shell Injection", description: "shell=True allows command injection.", fix: "Use shell=False and pass argument list.", exclude: /shell\s*=\s*False/i },
+  
+  // Command injection - os.system
+  { pattern: /os\.system\s*\(/g, severity: "high", title: "os.system() Usage", description: "os.system() is vulnerable to command injection.", fix: "Use subprocess.run() with argument list.", exclude: /shell\s*=\s*False/i },
+  
+  // Hardcoded secrets - only real patterns (longer matches = more likely real)
+  { pattern: /sk-[a-zA-Z0-9]{48}/g, severity: "critical", title: "OpenAI API Key", description: "OpenAI key found in code.", fix: "Use environment variables.", exclude: /REPLACE|EXAMPLE|xxx/i },
+  { pattern: /xAI-[a-zA-Z0-9]{32,}/g, severity: "critical", title: "xAI API Key", description: "xAI key found in code.", fix: "Use environment variables.", exclude: /REPLACE|EXAMPLE/i },
+  { pattern: /AKIA[0-9A-Z]{16}/g, severity: "critical", title: "AWS Access Key", description: "AWS access key found.", fix: "Use AWS Secrets Manager.", exclude: /REPLACE|EXAMPLE/i },
+  { pattern: /gh[pousr]_[a-zA-Z0-9]{36,}/g, severity: "critical", title: "GitHub Token", description: "GitHub token found.", fix: "Revoke and use environment variables.", exclude: /REPLACE|EXAMPLE/i },
+  { pattern: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]{20,}/g, severity: "high", title: "JWT Token", description: "JWT token found.", fix: "Use proper auth flow.", exclude: /REPLACE|EXAMPLE/i },
+  { pattern: /stripe[_-]?(sk|pk)[a-zA-Z0-9]{24,}/g, severity: "critical", title: "Stripe Key", description: "Stripe key found.", fix: "Use Stripe dashboard.", exclude: /REPLACE|EXAMPLE/i },
+  
+  // Hardcoded passwords - minimal length to reduce false positives
+  { pattern: /password\s*=\s*["'][a-zA-Z0-9!@#$%^&*()]{20,}["']/gi, severity: "high", title: "Hardcoded Password", description: "Password found in code.", fix: "Use environment variables or secrets manager.", exclude: /REPLACE|EXAMPLE|xxx|default|test/i },
+  { pattern: /passwd\s*=\s*["'][a-zA-Z0-9!@#$%^&*()]{20,}["']/gi, severity: "high", title: "Hardcoded Password", description: "Password found in code.", fix: "Use environment variables.", exclude: /REPLACE|EXAMPLE|xxx|default|test/i },
+  
+  // Weak crypto
+  { pattern: /crypto\.createHash\s*\(\s*["']md5["']/g, severity: "high", title: "Weak Crypto (MD5)", description: "MD5 is cryptographically broken.", fix: "Use SHA-256 or stronger.", exclude: /#.*md5|safe/i },
+  { pattern: /crypto\.createHash\s*\(\s*["']sha1["']/g, severity: "high", title: "Weak Crypto (SHA1)", description: "SHA1 is cryptographically weak.", fix: "Use SHA-256 or stronger.", exclude: /#.*sha1|safe/i },
+  { pattern: /hashlib\.md5\s*\(/g, severity: "high", title: "Weak Crypto (MD5)", description: "MD5 is cryptographically broken.", fix: "Use hashlib.sha256().", exclude: /#.*safe/i },
+  { pattern: /hashlib\.sha1\s*\(/g, severity: "high", title: "Weak Crypto (SHA1)", description: "SHA1 is cryptographically weak.", fix: "Use hashlib.sha256().", exclude: /#.*safe/i },
+  
+  // CORS wildcards
+  { pattern: /Access-Control-Allow-Origin\s*:\s*["']\*["']/g, severity: "high", title: "CORS Misconfiguration", description: "Allowing all origins is a security risk.", fix: "Specify exact origins.", exclude: /localhost|dev/i },
+  
+  // XSS in React - only dangerouslySetInnerHTML
+  { pattern: /dangerouslySetInnerHTML\s*=\s*\{\s*__html\s*:/g, severity: "high", title: "React XSS Risk", description: "dangerouslySetInnerHTML can lead to XSS.", fix: "Sanitize HTML or use textContent instead.", exclude: /sanitize|dangerously/i },
+  
+  // Debug mode in production
+  { pattern: /DEBUG\s*=\s*True/gi, severity: "high", title: "Debug Mode Enabled", description: "Debug mode should be disabled in production.", fix: "Set DEBUG=False in production.", exclude: /False|production/i },
+  
+  // Insecure random for crypto
+  { pattern: /Math\.random\s*\(\s*\)/g, severity: "medium", title: "Insecure Random", description: "Math.random is not cryptographically secure.", fix: "Use crypto.getRandomValues() or crypto.randomUUID().", exclude: /test|mock/i },
 ];
 
 function scanFile(file: { path: string; content: string; language: string }): Vulnerability[] {
   const findings: Vulnerability[] = [];
   
-  // Skip our own scanner code and component libraries
-  if (file.path.includes("api/scan.ts") || 
-      file.path.includes("components/ui/chart.tsx") ||
-      file.path.includes("/src/components/ui/")) {
+  // Skip files that would cause false positives
+  const skipPaths = ["api/scan", "node_modules", "__pycache__", ".git", "dist/", "build/", "test/", "mock/", "fixture/", "example/", ".semgrep", ".github/"];
+  if (skipPaths.some(p => file.path.includes(p))) {
+    return findings;
+  }
+  
+  // Skip test files
+  if (file.path.match(/\.(test|spec|mock)\.(ts|js|tsx|py)$/i)) {
     return findings;
   }
   
   const lines = file.content.split("\n");
+  const content = file.content;
   
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineNum = i + 1;
+  for (const rule of RULES) {
+    let match;
+    const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
     
-    for (const rule of VULNERABILITY_RULES) {
-      if (rule.pattern.test(line)) {
-        findings.push({
-          id: `${file.path}:${lineNum}`,
-          severity: rule.severity,
-          title: rule.title,
-          description: rule.description,
-          file: file.path,
-          line: lineNum,
-          code: line.trim().substring(0, 80),
-          fix: rule.fix,
-          category: rule.category,
-        });
+    while ((match = regex.exec(content)) !== null) {
+      const lineNum = content.substring(0, match.index).split("\n").length;
+      const line = lines[lineNum - 1] || "";
+      
+      // Check exclusions
+      if (rule.exclude && rule.exclude.test(line)) {
+        continue;
       }
-    }
-    
-    for (const secret of SECRET_PATTERNS) {
-      if (secret.pattern.test(line)) {
-        findings.push({
-          id: `secret-${file.path}:${lineNum}`,
-          severity: secret.severity,
-          title: `${secret.type} Detected`,
-          description: `Found ${secret.type.toLowerCase()}.`,
-          file: file.path,
-          line: lineNum,
-          code: line.trim().substring(0, 80),
-          fix: "Use environment variables.",
-          category: "Secrets",
-        });
+      
+      // Check if in test/mock code
+      if (line.match(/\/\/.*test|\/\*.*test|describe\(|it\(|test\(|pytest\(/i)) {
+        continue;
       }
+      
+      findings.push({
+        id: `${file.path}:${lineNum}`,
+        severity: rule.severity,
+        title: rule.title,
+        description: `${rule.description} Found at line ${lineNum}.`,
+        file: file.path,
+        line: lineNum,
+        code: line.trim().substring(0, 80),
+        fix: rule.fix,
+        category: rule.title.split(" ")[0],
+      });
+      
+      // Only one finding per rule per file
+      break;
     }
   }
   
@@ -261,7 +271,7 @@ async function checkDependencies(
             vulns.push({
               id: `dep-${pkg.name}`,
               severity: "high",
-              title: `Vulnerable: ${pkg.name}`,
+              title: `Vulnerable Dependency: ${pkg.name}`,
               description: `${adv.summary || "Known CVE"} (GHSA: ${adv.ghsa_id})`,
               file: pkgFile.path,
               line: 1,
@@ -314,7 +324,7 @@ function calculateScore(vulnerabilities: Vulnerability[]): number {
     }
   }
   
-  deductions = Math.min(deductions, 70);
+  deductions = Math.min(deductions, 65);
   return Math.max(0, 100 - deductions);
 }
 
