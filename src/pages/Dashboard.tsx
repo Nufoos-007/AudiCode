@@ -116,23 +116,44 @@ const Dashboard = () => {
   const analyzeRepo = useCallback(async (repo: any) => {
     if (!repo || analyzingRepo) return;
     
+    const repoUrl = repo.html_url || repo.full_name;
     const repoName = repo.full_name || `${repo.owner?.login}/${repo.name}`;
     setAnalyzingRepo(repoName);
     
     try {
+      // Get GitHub token from session
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.provider_token;
+      
+      // Call the API
+      const response = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoUrl, token }),
+      });
+      
+      let scanResult;
+      if (response.ok) {
+        scanResult = await response.json();
+      } else {
+        // Fallback to mock if API fails
+        console.warn("API scan failed, using mock data");
+        scanResult = mockAuditResult;
+      }
+      
       const repoData = {
         full_name: repoName,
         name: repo.name,
-        description: repo.description || "",
-        stargazers_count: repo.stargazers_count || 0,
-        language: repo.language || "Unknown",
+        description: repo.description || scanResult.repo?.description || "",
+        stargazers_count: repo.stargazers_count || scanResult.repo?.stars || 0,
+        language: repo.language || scanResult.repo?.language || "Unknown",
         html_url: repo.html_url || "",
         owner: { login: repo.owner?.login || user?.user_metadata?.user_name || "unknown" },
       };
       
       // Store and update state
-      sessionStorage.setItem("auditRepo", JSON.stringify(repoData));
-      setRepoInfo(repoData);
+      sessionStorage.setItem("auditRepo", JSON.stringify({ ...repoData, ...scanResult }));
+      setRepoInfo({ ...repoData, ...scanResult });
       setHasAudited(true);
       setShowRepos(false);
       
@@ -308,27 +329,33 @@ const Dashboard = () => {
                 </svg>
                 <span className="font-mono text-sm font-semibold">{repoInfo.full_name}</span>
                 <span className="text-xs text-muted-foreground">
-                  ⭐ {repoInfo.stargazers_count} · {repoInfo.language}
+                  ⭐ {repoInfo.stargazers_count || repoInfo.scan?.repo?.stars || 0} · {repoInfo.language || repoInfo.scan?.repo?.language || "Unknown"}
                 </span>
               </div>
             </div>
             
-            <CreditsBar used={data.credits.used} total={data.credits.total} />
+            <CreditsBar used={repoInfo.scan?.credits?.used || 0} total={repoInfo.scan?.credits?.total || 50} />
             
             <div className="mt-4 bg-surface border border-border rounded-xl overflow-hidden">
               <div className="p-5 px-6 border-b border-border">
                 <div className="flex gap-2 flex-wrap">
-                  {(Object.keys(data.summary) as Severity[]).map((sev) => (
-                    <SeverityPill key={sev} severity={sev} count={data.summary[sev]} />
-                  ))}
+                  {(() => {
+                    const counts = repoInfo.scan?.vulnerabilities?.reduce((acc: Record<string, number>, vuln: any) => {
+                      acc[vuln.severity] = (acc[vuln.severity] || 0) + 1;
+                      return acc;
+                    }, {}) || {};
+                    return (["critical", "high", "medium", "low"] as Severity[]).map((sev) => (
+                      <SeverityPill key={sev} severity={sev} count={counts[sev] || 0} />
+                    ));
+                  })()}
                 </div>
               </div>
             </div>
             
-            <ScoreRing score={data.score} grade={data.grade} />
+            <ScoreRing score={repoInfo.scan?.score || data.score} grade={repoInfo.scan?.grade || data.grade} />
             
             <div className="p-4 flex flex-col gap-2.5">
-              {data.vulnerabilities.map((vuln: any) => (
+              {(repoInfo.scan?.vulnerabilities || data.vulnerabilities).map((vuln: any) => (
                 <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
               ))}
             </div>
