@@ -181,11 +181,22 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
     const depVulns = await checkDependencies(files, repoName, headers);
     vulnerabilities.push(...depVulns);
 
+    // Deduplicate findings
+    const { deduplicateFindings, getCodeContext } = await import("./scanner/utils");
+    const deduplicated = deduplicateFindings(vulnerabilities);
+    
+    // Add code context to findings
+    for (const v of deduplicated) {
+      const fileContent = files.find(f => f.path === v.file)?.content || "";
+      v.code = getCodeContext(fileContent, v.line, 5);
+    }
+    const finalVulnerabilities = deduplicated;
+
     // Calculate confidence
-    const confidence = calculateConfidence(vulnerabilities, files.length);
+    const confidence = calculateConfidence(finalVulnerabilities, files.length);
 
     // Calculate score and grade
-    const score = calculateScore(vulnerabilities);
+    const score = calculateScore(finalVulnerabilities);
     const grade = calculateGrade(score);
 
     await supabase
@@ -194,8 +205,8 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
       .eq("id", jobId);
 
     // Store results in Supabase
-    if (vulnerabilities.length > 0) {
-      const resultsToInsert = vulnerabilities.slice(0, 100).map((v: any) => ({
+    if (finalVulnerabilities.length > 0) {
+      const resultsToInsert = finalVulnerabilities.slice(0, 100).map((v: any) => ({
         job_id: jobId,
         severity: v.severity,
         title: v.title,

@@ -4,6 +4,13 @@ import traverse from "@babel/traverse";
 import { parseCode, type ParsedFile, type Finding } from "./parser";
 import { applyRules, RULES } from "./rules";
 import { createDefaultTaintTracker } from "./taint";
+import { 
+  getCodeContext, 
+  calculateConfidence, 
+  deduplicateFindings,
+  isTestFile,
+  type EvidenceFactors 
+} from "./utils";
 
 export interface FileAnalysis {
   file: string;

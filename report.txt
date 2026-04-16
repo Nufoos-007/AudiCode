@@ -29,6 +29,9 @@ real-time async scanning, confidence scoring, and actionable fixes.
 - Vercel API Routes
 - TypeScript
 - Supabase Client (for persistence)
+- @babel/parser (AST parsing)
+- @babel/traverse (AST traversal)
+- @babel/types (AST node types)
 
 ### Database (Supabase PostgreSQL)
 - Row Level Security (RLS)
@@ -48,7 +51,7 @@ real-time async scanning, confidence scoring, and actionable fixes.
 ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
 │   Frontend   │────▶│  /api/jobs   │────▶│  Supabase   │
 │  (Dashboard)│     │  (REST API)  │     │  (Jobs DB)  │
-└──────────────┘     ��─��─────────────┘     └──────────────┘
+└──────────────┘     └───────────────┘     └──────────────┘
                             │
                             ▼
                      ┌───────────────┐
@@ -58,14 +61,8 @@ real-time async scanning, confidence scoring, and actionable fixes.
                             │
                             ▼
                      ┌───────────────┐
-                     │  GitHub API  │
-                     │  (Scanning) │
-                     └───────────────┘
-                            │
-                            ▼
-                     ┌───────────────┐
-                     │  Supabase    │
-                     │  (Results)   │
+                     │   AST Scan   │
+                     │  (Babel)    │
                      └───────────────┘
 ```
 
@@ -232,31 +229,48 @@ When completed:
 - File type analysis
 
 ================================================================================
-## 7. Scanner Implementation
+## 7. Scanner Implementation (AST-Based)
 
-### Detection: 50+ OWASP Rules
+### New Pipeline: GitHub API → AST Parser → Rule Engine
 
-| Category | Patterns |
-|----------|----------|
-| Secrets (A02) | OpenAI, GitHub, AWS, JWT tokens |
-| Injection (A03) | SQL, eval, exec, command injection |
-| XSS (A01) | innerHTML, dangerouslySetInnerHTML |
-| Crypto (A02) | MD5, SHA1, Math.random |
-| Config (A05) | CORS *, DEBUG mode |
-| SSRF (A10) | URL concatenation |
+```
+GitHub Repo → File Fetch → @babel/parser → AST → Traverse → Rules → Findings
+```
+
+### Scanner Structure (api/scanner/)
+```
+api/scanner/
+├── parser.ts      # @babel/parser + AST utilities
+├── rules.ts      # 10 security rules
+├── taint.ts     # Basic taint tracking  
+└── analyzer.ts  # Main analysis engine
+```
+
+### Detection: 10+ AST Rules (Structure-Aware)
+
+| Rule | Severity | Category | Detection Method |
+|------|----------|----------|----------------|
+| eval() | critical | Injection | CallExpression.callee.name |
+| Function constructor | high | Injection | CallExpression callee |
+| setTimeout string | high | Injection | StringLiteral in args |
+| dangerouslySetInnerHTML | high | XSS | MemberExpression property |
+| innerHTML assignment | high | XSS | AssignmentExpression |
+| Hardcoded secrets | critical | Secrets | VariableDeclarator init |
+| MD5 hash | high | Crypto | createHash('md5') |
+| Math.random() | high | Crypto | MemberExpression |
+| setInterval string | high | Injection | StringLiteral in args |
+
+### Babel AST Advantages:
+- Structure-aware (not just regex)
+- Identifies callee, arguments, context
+- Line-accurate (node.loc.start.line)
+- Type-aware (IsIdentifier, IsCallExpression, etc.)
 
 ### File Filtering
-- Skips test files
-- Skips node_modules, dist
-- Excludes scanner's own code (api/scan.ts)
+- Skips: node_modules, dist, test files
 - Max file size: 40KB
 - Max files: 40
-
-### Context Extraction
-- Line number
-- Code snippet (±80 chars)
-- File path
-- Category & CWE mapping
+- Language detection via extension
 
 ================================================================================
 ## 8. Monetization System
@@ -300,16 +314,21 @@ Action types:
 - [x] Credits system
 - [x] Frontend integration
 
-### Phase 2 (Next)
+### Phase 2 ✅ COMPLETED
+- [x] AST-based analysis (@babel/parser)
+- [x] Structure-aware detection
+- [x] Taint tracking foundation
+
+### Phase 3 (Next)
 - [ ] AI explanation layer (Gemini)
 - [ ] Context extraction improvements
 - [ ] Trust UI (confidence badges)
 - [ ] PDF report generation
 
-### Phase 3
-- [ ] AST-based analysis
+### Phase 4
 - [ ] Cross-file taint tracking
 - [ ] Custom rules engine
+- [ ] More language support (Python, Go, Rust)
 - [ ] Slack/Discord integration
 
 ================================================================================
@@ -319,9 +338,14 @@ Action types:
 /home/nufoos/Projects/code-guardian-ui/
 ├── api/
 │   ├── scan.ts          # Legacy sync scanner
-│   └── jobs.ts         # Async job system + Supabase
+│   ├── jobs.ts         # Async job system + Supabase
+│   └── scanner/
+│       ├── parser.ts   # @babel/parser AST utilities
+│       ├── rules.ts    # Security rules
+│       ├── taint.ts    # Taint tracking
+│       └── analyzer.ts # Main analysis engine
 ├── supabase/
-│   └── schema.sql      # Database schema
+│   └── schema.sql     # Database schema
 ├── src/
 │   ├── pages/
 │   │   ├── Landing.tsx
@@ -336,8 +360,8 @@ Action types:
 │   └── lib/
 │       ├── supabase.ts
 │       └── github.ts
-├── report.txt          # This report
-├── .env.local          # Environment vars
+├── report.txt         # This report
+├── .env.local         # Environment vars
 └── package.json
 ```
 
@@ -368,7 +392,7 @@ SUPABASE_SERVICE_KEY=eyJxxx
 ================================================================================
 ## 14. Summary
 
-AudiCode is now a production-ready async vulnerability scanner with:
+AudiCode is now an AST-based security scanner with:
 
 ✅ Supabase-backed persistence
 ✅ Async job processing with progress
@@ -376,7 +400,9 @@ AudiCode is now a production-ready async vulnerability scanner with:
 ✅ Rate limiting for safety
 ✅ Credits/monetization system
 ✅ Confidence scoring (40-95)
-✅ 50+ OWASP rule detection
+✅ AST-based analysis (@babel/parser)
+✅ Structure-aware detection (not regex)
+✅ Taint tracking foundation
 ✅ Row Level Security
 ✅ Real GitHub API integration
 ✅ Error handling & retries
