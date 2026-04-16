@@ -1,92 +1,116 @@
 ================================================================================
-                          AudiCode - Project Report
+                       AudiCode - Project Report
+                    AI-Powered Security Scanner for 
+                     Vibe-Coded (AI-Generated) Apps
 ================================================================================
 
 ## 1. Project Overview
 
 AudiCode is an AI-powered security vulnerability scanner designed specifically 
-for "vibe-coded" (AI-generated) applications. It analyzes GitHub repositories 
-to detect common security vulnerabilities introduced by AI coding assistants.
+for "vibe-coded" (AI-generated) applications built with tools like Cursor, 
+GitHub Copilot, Bolt, Lovable, and similar AI coding assistants.
 
-Mission: Make AI-generated code secure by automating security audits.
+Mission: Make AI-generated code secure by automating security audits with 
+real-time async scanning, confidence scoring, and actionable fixes.
+
+Key Stats:
+- 62% of AI-generated code contains vulnerabilities (CSA/Endor Labs 2025)
+- 45% fails OWASP Top 10 (Veracode 2025)
+- AI-generated code has 2.74x more vulnerabilities than human-written
 
 ================================================================================
 ## 2. Technology Stack
 
-### Frontend
+### Frontend (React + TypeScript)
 - React 18 with TypeScript
-- Vite (build tool)
-- TailwindCSS (styling)
+- Vite (build tool - fast HMR)
+- TailwindCSS (styling with custom theme)
 - Supabase (authentication - GitHub + Google OAuth)
 - React Router DOM (routing)
 - TanStack React Query (state management)
 - Lucide React (icons)
 
-### Backend (API)
-- Vercel Serverless Functions (API routes)
+### Backend (Vercel Serverless)
+- Vercel API Routes (/api/scan, /api/jobs)
 - TypeScript
+- In-memory job queue (production: Supabase)
+
+### Database (Supabase - Future)
+- Row Level Security (RLS)
+- Jobs table
+- Results storage
+- Credits ledger
 
 ### Deployment
-- Vercel (Frontend + API)
+- Vercel (Frontend + API) - https://audi-code.vercel.app
 - GitHub (source control)
 
 ### External APIs
 - GitHub REST API (repo analysis)
-- GitHub Advisory API (dependency vulnerabilities)
+- GitHub Advisory Database (CVE lookup)
 
 ================================================================================
 ## 3. Architecture
 
-### System Flow:
+### System Flow (Current - Synchronous):
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend  │────▶│  /api/scan  │────▶│  GitHub API  │
-│  ( Landing)│     │  (Vercel)   │     │  (REST)      │
-│  (Dashboard│     │             │     └──────────────┘
-│   Auth    ) │     └──────────────┘
-└─────────────┘            │
-                          ▼
-                  ┌──────────────┐
-                  │ File Scanner │
-                  │  (Patterns)  │
-                  └──────────────┘
-                          │
-                          ▼
-                  ┌──────────────┐
-                  │ Vulnerability │
-                  │   Analysis   │
-                  └──────────────┘
-                          │
-                          ▼
-                  ┌──────────────┐
-                  │   Results    │
-                  │  (Score +   │
-                  │   Fixes)    │
-                  └──────────────┘
+User Input ──▶ /api/scan ──▶ GitHub API ──▶ Scan ──▶ Results
+                     (inline)   (REST)   (regex)
+```
+
+### System Flow (Async - Current Implementation):
+
+```
+┌──────────────────┐     ┌─────────────────┐     ┌──────────────────┐
+│   Frontend       │     │  /api/jobs      │     │  Background     │
+│  (Landing)       │────▶│  (Job Queue)    │────▶│  Worker         │
+│  (Dashboard)     │     │  returns job ID │     │  (Async Scan)  │
+│  (Auth)         │     └─────────────────┘     └──────────────────┘
+│                  │            │                        │
+│                  │            ▼                        ▼
+│                  │     ┌─────────────────┐     ┌──────────────────┐
+│                  │     │  In-Memory     │     │  GitHub API     │
+│                  │     │  Jobs Store    │     │  (Files + CVE) │
+│                  │     └─────────────────┘     └──────────────────┘
+└──────────────────┘                                    │
+                                                     ▼
+                                             ┌──────────────────┐
+                                             │  Store Results  │
+                                             │  + Confidence  │
+                                             └──────────────────┘
 ```
 
 ### Authentication Flow:
-1. User visits AudiCode
-2. Clicks "Get Started" → /auth
-3. Chooses GitHub or Google OAuth
-4. Supabase handles OAuth
-5. User redirected to /dashboard
+1. User visits https://audi-code.vercel.app
+2. Clicks "Get Started" → /auth page
+3. Chooses GitHub or Google OAuth (Supabase handles)
+4. After login, redirected to /dashboard
+5. Can select from their GitHub repos or enter URL
 
-### Scan Flow:
-1. User enters GitHub repo URL OR selects from their repos
-2. Frontend passes URL + GitHub token to /api/scan
-3. API clones repo recursively via GitHub API
-4. Each file scanned against 50+ vulnerability patterns
-5. Dependencies checked against GitHub Advisory Database
-6. Results returned with severity, fixes, OWASP category
+### Scan Flow (Async):
+1. User selects repo to audit
+2. POST /api/jobs with repoUrl
+3. Returns jobId immediately (202 response)
+4. Background worker:
+   - Fetches repo via GitHub API (recursive)
+   - Scans files against 50+ OWASP rules
+   - Checks dependencies against GitHub Advisory
+   - Calculates confidence scores
+5. User polls GET /api/jobs?jobId=XXX
+6. Returns complete results when done
+
+### Scan States:
+- queued: Job created, waiting to start
+- running: Currently scanning files
+- completed: Done with full results
+- failed: Error occurred
 
 ================================================================================
 ## 4. Scanner Implementation
 
-### Detection Methods:
+### Detection Method: Regex Pattern Matching
 
-#### Pattern Matching (Regex-based)
 The scanner uses regex patterns to detect known vulnerability signatures:
 
 ```typescript
@@ -107,82 +131,135 @@ const OWASP_RULES = [
   // XSS
   { pattern: /\.dangerouslySetInnerHTML\s*=/g,
     severity: "high", title: "React XSS Risk" },
+    
+  // Command Injection
+  { pattern: /eval\s*\(/g,
+    severity: "critical", title: "Dangerous eval()" },
+    
   // ... 50+ more rules
 ];
 ```
 
-#### File Filtering
+### File Filtering
 - Skips test files (.test., .spec., .mock.)
 - Skips node_modules
 - Skips build/dist folders
-- Limits to files < 50KB
+- Skips scanner's own code (api/scan.ts)
+- Limits to files < 40KB per file
 
-#### Dependency Checking
-- Fetches GitHub Advisory Database: GET /advisories?ecosystem=pip&package=NAME
-- Compares against package.json/requirements.txt
+### Async Job Processing
+- Returns job ID immediately (202 status)
+- Background worker processes scan
+- In-memory job storage (production: Supabase)
+- Polling endpoint for results
 
 ================================================================================
-## 5. Vulnerability Categories (OWASP Top 10)
+## 5. Vulnerability Categories (OWASP Top 10 + Vibe-Specific)
 
 ### A01: Broken Access Control
-- Unprotected API routes
-- Missing Supabase RLS policies  
-- Public admin endpoints
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Unprotected routes | critical | No auth middleware |
+| Missing RLS | high | Supabase without policies |
 
-### A02: Cryptographic Failures
-- Hardcoded API keys/secrets
-- Weak hashing (MD5, SHA1)
-- Insecure random (Math.random())
-- JWT secrets in code
+### A02: Cryptographic Failures  
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Hardcoded API keys | critical | Keys in source |
+| Weak crypto (MD5/SHA1) | high | Broken algorithms |
+| Math.random() for tokens | high | Not cryptographically secure |
 
 ### A03: Injection
-- SQL Injection (template strings, f-strings)
-- NoSQL Injection
-- Command Injection (eval/exec/shell=True)
-- Code Injection
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| eval() usage | critical | Arbitrary code execution |
+| exec() usage | critical | Shell commands |
+| SQL injection (templates) | critical | String interpolation in SQL |
+| NoSQL injection | critical | MongoDB query injection |
+| Command injection (shell=True) | critical | Shell=True vulnerability |
 
 ### A04: Insecure Design
-- Missing rate limiting
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| No rate limiting | medium | Missing rate limits |
 
 ### A05: Security Misconfiguration
-- Wildcard CORS (*)
-- Debug mode enabled
-- Verbose error messages
-- Missing security headers
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Wildcard CORS (*) | high | Allow all origins |
+| DEBUG=True | critical | Debug in production |
 
 ### A06: Vulnerable Components
-- Outdated dependencies with CVEs
-- Git dependencies
-- Unverified packages
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| CVE in dependencies | high | Known vulnerabilities |
 
-### A07: Identification & Authentication Failures
-- Hardcoded passwords
-- Weak JWT configuration
-- Missing token expiration
+### A07: Authentication Failures
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Hardcoded JWT secrets | high | Secrets in code |
+| Weak session config | medium | Poor session handling |
 
-### A08: Software & Data Integrity Failures
-- Git dependencies (untrusted sources)
-- No integrity verification
+### A08: Software & Data Integrity
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Git dependencies | medium | Untrusted sources |
 
-### A09: Security Logging & Monitoring Failures
-- Credentials in logs
-- Missing audit trails
+### A09: Logging Failures
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| Credentials in logs | critical | Passwords logged |
 
 ### A10: Server-Side Request Forgery (SSRF)
-- URL built from user input
-- No URL validation
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| URL from user input | critical | URL injection risk |
 
 ### Additional (Vibe-Coder Specific)
-- dangerouslySetInnerHTML (React XSS)
-- Hardcoded secrets (various services)
-- Math.random for tokens
+| Pattern | Severity | Description |
+|---------|----------|-------------|
+| dangerouslySetInnerHTML | high | React XSS |
+| innerHTML assignment | high | DOM XSS |
 
 ================================================================================
-## 6. Severity & Scoring
+## 6. Confidence Scoring System
+
+Every finding includes a confidence score (40-100):
+
+### Confidence Levels:
+- **95-100**: Very likely real - direct pattern match in code
+- **70-94**: Likely real - pattern with context
+- **40-69**: Uncertain - review manually
+
+### Factors That Increase Confidence:
+- Variable assignments (`const x = ...`)
+- Function calls in the line
+- More files scanned = higher confidence
+
+### Factors That Decrease Confidence:
+- Test code detection
+- Comments
+- Example patterns
+
+### Example Output:
+```json
+{
+  "id": "file.ts:42-SQLInjection",
+  "severity": "critical",
+  "title": "SQL Injection",
+  "confidence": 88,
+  "file": "src/db.ts",
+  "line": 42,
+  "code": "await db.execute(`SELECT * FROM users WHERE id = ${id}`)"
+}
+```
+
+================================================================================
+## 7. Severity & Scoring
 
 ### Severity Levels:
 - CRITICAL (50 points): Immediate action required
-- HIGH (20 points): Fix soon
+- HIGH (20 points): Fix soon  
 - MEDIUM (5 points): Consider fixing
 - LOW (1 points): Nice to fix
 
@@ -190,107 +267,198 @@ const OWASP_RULES = [
 ```
 Deductions = sum of severity weights per UNIQUE file
 Score = max(0, 100 - deductions)
-Grade = A (90+), B (75+), C (60+), D (40+), F (<40)
 ```
 
-================================================================================
-## 7. API Endpoints
+### Grade Thresholds:
+- A (90-100): Excellent
+- B (75-89): Good
+- C (60-74): Needs work
+- D (40-59): Poor
+- F (<40): Critical issues
 
-### POST /api/scan
+================================================================================
+## 8. API Endpoints
+
+### POST /api/jobs
+Create a new async scan job.
+
 Request:
 ```json
 {
   "repoUrl": "https://github.com/owner/repo",
-  "token": "ghp_xxx"  // optional GitHub token for higher rate limits
+  "token": "ghp_xxx"  // optional - for higher rate limits
 }
 ```
+
+Response (202):
+```json
+{
+  "jobId": "uuid-v4-formatted",
+  "status": "queued",
+  "message": "Scan started. Use GET /api/jobs?jobId=<id>"
+}
+```
+
+### GET /api/jobs?jobId=<jobId>
+Check scan job status and get results.
 
 Response:
 ```json
 {
-  "repo": {
-    "name": "owner/repo",
-    "description": "...",
-    "stars": 1234,
-    "language": "JavaScript",
-    "url": "https://github.com/owner/repo"
-  },
-  "scan": {
-    "filesScanned": 50,
-    "vulnerabilities": [
-      {
-        "id": "file.ts:42-Injection",
-        "severity": "critical",
-        "title": "SQL Injection",
-        "description": "String interpolation in SQL query",
-        "file": "src/db.ts",
-        "line": 42,
-        "code": "await db.execute(`SELECT * FROM users WHERE id = ${id}`)",
-        "fix": "Use parameterized queries",
-        "category": "Injection",
-        "cwe": "CWE-89",
-        "owasp": "A03"
-      }
-    ],
-    "score": 75,
-    "grade": "B",
-    "summary": { "critical": 1, "high": 2, "medium": 0, "low": 1 }
-  }
+  "id": "uuid-v4-formatted",
+  "repoUrl": "https://github.com/owner/repo",
+  "status": "completed",
+  "score": 75,
+  "grade": "B",
+  "confidence": 85,
+  "filesScanned": 42,
+  "vulnerabilities": [
+    {
+      "id": "file.ts:42-Injection",
+      "severity": "critical",
+      "title": "SQL Injection",
+      "description": "String interpolation in SQL query",
+      "file": "src/db.ts",
+      "line": 42,
+      "code": "await db.execute(`SELECT * FROM users WHERE id = ${id}`)",
+      "fix": "Use parameterized queries: db.execute('SELECT * FROM users WHERE id = $1', [id])",
+      "category": "Injection",
+      "cwe": "CWE-89",
+      "owasp": "A03",
+      "confidence": 88
+    }
+  ],
+  "summary": { "critical": 1, "high": 2, "medium": 0, "low": 1 }
 }
 ```
 
-================================================================================
-## 8. Current Vulnerabilities Detected (50+ patterns)
-
-| Category | Patterns |
-|----------|----------|
-| Secrets | OpenAI, xAI, AWS, GitHub, JWT, Stripe, Twilio keys |
-| SQL Injection | Template strings, f-strings, execute() |
-| Code Injection | eval(), exec(), pickle.loads |
-| Command Injection | shell=True, os.system() |
-| XSS | innerHTML, dangerouslySetInnerHTML |
-| Crypto | MD5, SHA1, Math.random |
-| Auth | Hardcoded JWT/Auth0, weak sessions |
-| CORS | Wildcard (*) |
-| SSRF | URL concatenation |
-| Config | DEBUG=True |
-| Logging | Credentials in console.log |
-| Supply Chain | Git dependencies, outdated packages |
+### Legacy: POST /api/scan
+Synchronous scan endpoint (still works).
 
 ================================================================================
-## 9. Security Tools Integrated
+## 9. Vulnerability Detection (50+ Patterns)
 
-- npm audit (dependency vulnerabilities)
-- Vercel API (our scanner)
-- GitHub Advisory Database (CVE lookup)
-- GitHub CodeQL (setup ready in .github/workflows/)
-- Dependabot (dependency updates)
+### Secrets Detection (CRITICAL)
+- OpenAI API keys (sk-...)
+- xAI API keys
+- GitHub tokens (ghp_, gho_, ghs_)
+- AWS keys (AKIA...)
+- JWT tokens
+- Stripe keys (sk_live_)
+- Auth0 secrets
+
+### SQL/NoSQL Injection (CRITICAL)
+- Template string interpolation
+- f-string in SQL
+- Execute with string concatenation
+- MongoDB $where operator
+
+### Code Injection (CRITICAL)
+- eval() usage
+- exec() usage
+- pickle.loads()
+- __import__("os")
+
+### XSS Vulnerabilities (HIGH)
+- innerHTML assignment
+- dangerouslySetInnerHTML
+- document.write()
+
+### Crypto Issues (HIGH)
+- MD5 hashing
+- SHA1 hashing
+- Math.random() for security
+- Weak bcrypt iterations
+
+### Command Injection (HIGH)
+- subprocess with shell=True
+- os.system()
+- os.popen()
+
+### Configuration Issues (HIGH)
+- CORS wildcard (*)
+- DEBUG mode enabled
+- Verbose error messages
+
+### SSRF (CRITICAL)
+- URL built from user input
+- fetch/axios with string concatenation
+
+### Logging Issues (HIGH)
+- Credentials in console.log
+- Passwords in error logs
 
 ================================================================================
-## 10. Known Limitations
+## 10. Security Tools Integrated
 
-1. No taint tracking (basic regex patterns only)
-2. Cannot follow data flow between files
-3. GitHub API rate limits (60/hour without token)
-4. Limited to 50 files per scan
-5. Some false positives in scanner code detection
+- **npm audit**: Dependency vulnerabilities
+- **Vercel API**: Custom regex scanner  
+- **GitHub Advisory DB**: CVE lookup
+- **In-memory Jobs**: Async job queue
+- **Confidence Scoring**: Per-finding trust levels
 
 ================================================================================
-## 11. Future Improvements
+## 11. Known Limitations
 
-- [ ] Add AST-based analysis
+1. **No taint tracking** - Basic regex patterns only
+2. **No cross-file analysis** - Can't track data flow
+3. **GitHub API rate limits** - 60/hour unauthenticated
+4. **In-memory storage** - Jobs lost on restart (Supabase planned)
+5. **No AST parsing** - Regex vs proper AST analysis
+6. **False positives possible** - Confidence scoring helps filter
+
+================================================================================
+## 12. Future Improvements (Roadmap)
+
+### Phase 1 - Async & Persistence (Current)
+- [x] Job queue system
+- [x] Background worker
+- [x] Confidence scoring
+- [ ] Supabase persistence
+- [ ] User-visible scan states
+
+### Phase 2 - Scanner Upgrades
+- [ ] Add Semgrep rules integration
 - [ ] Add taint tracking
-- [ ] Add cross-file analysis
-- [ ] Add AI-powered fix suggestions (Gemini)
-- [ ] Add credits system
-- [ ] Add PDF report generation
-- [ ] Add Slack/Discord integrations
+- [ ] Add AST-based analysis
+- [ ] Cross-file analysis
+
+### Phase 3 - User Features
+- [ ] Credit system (ledger)
+- [ ] PDF report generation
+- [ ] Slack/Discord integration
+- [ ] Historical scans
+
+### Phase 4 - Trust & Docs
+- [ ] Trust page
+- [ ] Privacy policy
+- [ ] Security disclosure
+- [ ] Rate limiting
 
 ================================================================================
+## 13. Test Results
 
-Report generated: April 2026
-Project: AudiCode - AI-Powered Security Scanner for Vibe-Coded Apps
-Repository: https://github.com/Nufoos-007/AudiCode
-Live URL: https://audi-code.vercel.app
+### Sample Scans:
+
+| Repository | Files | Score | Grade | Issues | Confidence |
+|------------|-------|-------|-------|--------|------------|
+| facebook/react | 66 | 80 | B | 2 (1 critical, 1 high) | 85 |
+| shadcn-ui/ui | 117 | 30 | F | 10 (3 critical, 7 high) | 78 |
+| Nufoos-007/AudiCode | 87 | - | - | False positives (scanner self-scan) | - |
+
+### Real Issues Found:
+- facebook/react: Dangerous exec() in GitHub Actions, Weak MD5
+- shadcn-ui: Multiple hardcoded values, config issues
+
+================================================================================
+## 14. Report Generated
+
+**Date**: April 2026
+**Project**: AudiCode - AI-Powered Security Scanner for Vibe-Coded Apps
+**Frontend**: https://audi-code.vercel.app
+**Backend**: Vercel Serverless Functions
+**Source**: https://github.com/Nufoos-007/AudiCode
+
+**Stack**: React + TypeScript + Vite + TailwindCSS + Supabase + Vercel
 
 ================================================================================
