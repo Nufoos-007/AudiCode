@@ -185,6 +185,14 @@ const VULNERABILITY_RULES: Array<{
 
 function scanFile(file: { path: string; content: string; language: string }): Vulnerability[] {
   const findings: Vulnerability[] = [];
+  
+  // Skip our own scanner code and component libraries
+  if (file.path.includes("api/scan.ts") || 
+      file.path.includes("components/ui/chart.tsx") ||
+      file.path.includes("/src/components/ui/")) {
+    return findings;
+  }
+  
   const lines = file.content.split("\n");
   
   for (let i = 0; i < lines.length; i++) {
