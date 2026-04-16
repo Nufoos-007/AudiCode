@@ -34,9 +34,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const headers: Record<string, string> = {
       Accept: "application/vnd.github.v3+json",
     };
+    
     if (token) {
       headers.Authorization = `token ${token}`;
     }
+    
+    // Debug: log if we have a token
+    console.log("Token available:", !!token);
 
     const repoRes = await fetch(`https://api.github.com/repos/${repoName}`, { headers });
     if (!repoRes.ok) {

@@ -28,10 +28,14 @@ const Dashboard = () => {
     const doAutoAudit = async (repoUrl: string) => {
       setAnalyzingRepo(repoUrl);
       try {
+        // Get GitHub token from session
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.provider_token || session?.access_token;
+        
         const response = await fetch("/api/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoUrl }),
+          body: JSON.stringify({ repoUrl, token: token || undefined }),
         });
         
         if (response.ok) {
