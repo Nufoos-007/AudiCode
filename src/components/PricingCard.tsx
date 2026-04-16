@@ -31,7 +31,7 @@ const PricingCard = ({ name, price, period, features, buttonText, featured, onAc
         ) : (
           <>
             <sup className="text-lg font-semibold align-super">$</sup>
-            {price.replace("$", "")}
+            {price.replace(/\$/g, "")}
           </>
         )}
       </div>
