@@ -101,6 +101,7 @@ export function analyzeFile(
     traverse(parsed.ast, {
       noScope: true,
 
+      // A01: XSS
       CallExpression(path: NodePath) {
         const node = path.node;
         if (t.isIdentifier(node.callee)) {
@@ -109,40 +110,57 @@ export function analyzeFile(
               id: `eval-${node.loc?.start.line}`,
               severity: "critical",
               title: "eval() Usage",
-              description: "eval() is dangerous",
+              description: "eval() is dangerous - arbitrary code execution",
               file: filename,
               line: node.loc?.start.line || 0,
               code: "eval(...)",
-              fix: "Avoid eval()",
+              fix: "Avoid eval(), use JSON.parse() or safe alternatives",
+              category: "Injection",
+              cwe: "CWE-95",
+              owasp: "A03",
+              confidence: 95,
+            });
+          }
+          if (node.callee.name === "Function") {
+            findings.push({
+              id: `func-${node.loc?.start.line}`,
+              severity: "high",
+              title: "Function Constructor",
+              description: "Function constructor is like eval()",
+              file: filename,
+              line: node.loc?.start.line || 0,
+              code: "new Function(...)",
+              fix: "Use regular function declaration",
               category: "Injection",
               cwe: "CWE-95",
               owasp: "A03",
               confidence: 90,
             });
           }
-        }
-
-        if (t.isIdentifier(node.callee) && node.callee.name === "Function") {
-          findings.push({
-            id: `func-${node.loc?.start.line}`,
-            severity: "high",
-            title: "Function Constructor",
-            description: "Function constructor is like eval()",
-            file: filename,
-            line: node.loc?.start.line || 0,
-            code: "new Function(...)",
-            fix: "Use regular function",
-            category: "Injection",
-            cwe: "CWE-95",
-            owasp: "A03",
-            confidence: 85,
-          });
+          // Command injection
+          if (["exec", "execSync", "spawn"].includes(node.callee.name)) {
+            findings.push({
+              id: `cmd-${node.loc?.start.line}`,
+              severity: "critical",
+              title: "Command Injection",
+              description: "exec/spawn can run shell commands",
+              file: filename,
+              line: node.loc?.start.line || 0,
+              code: `${node.callee.name}(...)`,
+              fix: "Use execFile with args array, avoid shell",
+              category: "Injection",
+              cwe: "CWE-78",
+              owasp: "A03",
+              confidence: 85,
+            });
+          }
         }
       },
 
       MemberExpression(path: NodePath) {
         const node = path.node;
         if (t.isIdentifier(node.property)) {
+          // XSS - React
           if (node.property.name === "dangerouslySetInnerHTML") {
             findings.push({
               id: `xss-${node.loc?.start.line}`,
@@ -152,14 +170,14 @@ export function analyzeFile(
               file: filename,
               line: node.loc?.start.line || 0,
               code: "dangerouslySetInnerHTML",
-              fix: "Sanitize or use textContent",
+              fix: "Sanitize HTML or use textContent",
               category: "XSS",
               cwe: "CWE-79",
               owasp: "A01",
               confidence: 95,
             });
           }
-
+          // XSS - DOM
           if (node.property.name === "innerHTML") {
             findings.push({
               id: `innerhtml-${node.loc?.start.line}`,
@@ -169,7 +187,48 @@ export function analyzeFile(
               file: filename,
               line: node.loc?.start.line || 0,
               code: ".innerHTML =",
-              fix: "Use textContent",
+              fix: "Use textContent or sanitize",
+              category: "XSS",
+              cwe: "CWE-79",
+              owasp: "A01",
+              confidence: 85,
+            });
+          }
+          // Path traversal
+          if (["readFile", "writeFile", "readFileSync", "writeFileSync", "createReadStream"].includes(node.property.name)) {
+            findings.push({
+              id: `pathtraversal-${node.loc?.start.line}`,
+              severity: "high",
+              title: "Path Traversal Risk",
+              description: "File operations without path sanitization",
+              file: filename,
+              line: node.loc?.start.line || 0,
+              code: `file.${node.property.name}`,
+              fix: "Validate and sanitize file paths",
+              category: "Path Traversal",
+              cwe: "CWE-22",
+              owasp: "A01",
+              confidence: 70,
+            });
+          }
+        }
+      },
+
+      AssignmentExpression(path: NodePath) {
+        const node = path.node;
+        if (t.isMemberExpression(node.left)) {
+          const prop = t.isIdentifier(node.left.property) ? node.left.property.name : null;
+          // XSS assignment
+          if (prop === "innerHTML") {
+            findings.push({
+              id: `innerhtml-assign-${node.loc?.start.line}`,
+              severity: "high",
+              title: "innerHTML Assignment",
+              description: "Direct innerHTML assignment can cause XSS",
+              file: filename,
+              line: node.loc?.start.line || 0,
+              code: ".innerHTML = ...",
+              fix: "Use textContent instead",
               category: "XSS",
               cwe: "CWE-79",
               owasp: "A01",
@@ -181,45 +240,40 @@ export function analyzeFile(
 
       VariableDeclarator(path: NodePath) {
         const node = path.node;
+        // Hardcoded secrets
         if (node.init && t.isStringLiteral(node.init)) {
           const value = node.init.value;
-          if (value && /^(sk-|ghp_|AKIA|eyJ|SK|AIza)/.test(value)) {
-            findings.push({
-              id: `secret-${node.loc?.start.line}`,
-              severity: "critical",
-              title: "Hardcoded Secret",
-              description: "Possible hardcoded API key or token",
-              file: filename,
-              line: node.loc?.start.line || 0,
-              code: value.substring(0, 20) + "...",
-              fix: "Use environment variables",
-              category: "Secrets",
-              cwe: "CWE-798",
-              owasp: "A02",
-              confidence: 90,
-            });
-          }
-        }
-      },
-
-      CallExpression(path: NodePath) {
-        const node = path.node;
-        if (t.isMemberExpression(node.callee)) {
-          if (t.isIdentifier(node.callee.object) && node.callee.object.name === "Math") {
-            if (t.isIdentifier(node.callee.property) && node.callee.property.name === "random") {
+          if (value) {
+            if (/^(sk-|ghp_|AKIA|eyJ|SK|AIza|xAI-|sk_live_)/.test(value)) {
               findings.push({
-                id: `random-${node.loc?.start.line}`,
-                severity: "high",
-                title: "Insecure Random",
-                description: "Math.random() is not cryptographically secure",
+                id: `secret-${node.loc?.start.line}`,
+                severity: "critical",
+                title: "Hardcoded Secret",
+                description: "Possible hardcoded API key or token",
                 file: filename,
                 line: node.loc?.start.line || 0,
-                code: "Math.random()",
-                fix: "Use crypto.randomUUID()",
-                category: "Crypto",
-                cwe: "CWE-338",
+                code: value.substring(0, 15) + "...",
+                fix: "Use environment variables",
+                category: "Secrets",
+                cwe: "CWE-798",
                 owasp: "A02",
-                confidence: 80,
+                confidence: 95,
+              });
+            }
+            if (/^-----BEGIN/.test(value)) {
+              findings.push({
+                id: `privatekey-${node.loc?.start.line}`,
+                severity: "critical",
+                title: "Private Key Exposed",
+                description: "Private key found in source",
+                file: filename,
+                line: node.loc?.start.line || 0,
+                code: "-----BEGIN PRIVATE KEY-----",
+                fix: "Store in secrets manager",
+                category: "Secrets",
+                cwe: "CWE-798",
+                owasp: "A02",
+                confidence: 95,
               });
             }
           }
@@ -229,21 +283,69 @@ export function analyzeFile(
       CallExpression(path: NodePath) {
         const node = path.node;
         if (t.isMemberExpression(node.callee)) {
-          if (t.isIdentifier(node.callee.property) && node.callee.property.name === "createHash") {
-            if (t.isStringLiteral(node.arguments[0]) && node.arguments[0].value === "md5") {
+          // Weak crypto - MD5
+          if (t.isIdentifier(node.callee.object) && 
+              t.isIdentifier(node.callee.property) && 
+              node.callee.object.name === "crypto") {
+            if (node.callee.property.name === "createHash") {
+              if (t.isStringLiteral(node.arguments[0])) {
+                const algo = node.arguments[0].value;
+                if (algo === "md5" || algo === "sha1") {
+                  findings.push({
+                    id: `weakhash-${node.loc?.start.line}`,
+                    severity: "high",
+                    title: `Weak Crypto (${algo.toUpperCase()})`,
+                    description: `${algo.toUpperCase()} is cryptographically weak`,
+                    file: filename,
+                    line: node.loc?.start.line || 0,
+                    code: `crypto.createHash('${algo}')`,
+                    fix: "Use SHA-256 or stronger",
+                    category: "Crypto",
+                    cwe: "CWE-327",
+                    owasp: "A02",
+                    confidence: 90,
+                  });
+                }
+              }
+            }
+          }
+          // Insecure random
+          if (t.isIdentifier(node.callee.object) && 
+              t.isIdentifier(node.callee.property) &&
+              node.callee.object.name === "Math" && 
+              node.callee.property.name === "random") {
+            findings.push({
+              id: `insecure-random-${node.loc?.start.line}`,
+              severity: "high",
+              title: "Insecure Random",
+              description: "Math.random() is not cryptographically secure",
+              file: filename,
+              line: node.loc?.start.line || 0,
+              code: "Math.random()",
+              fix: "Use crypto.randomUUID() or crypto.randomBytes()",
+              category: "Crypto",
+              cwe: "CWE-338",
+              owasp: "A02",
+              confidence: 85,
+            });
+          }
+          // setTimeout/setInterval with string
+          if (t.isIdentifier(node.callee.object) && 
+              ["setTimeout", "setInterval"].includes(node.callee.object.name)) {
+            if (node.arguments.length > 0 && t.isStringLiteral(node.arguments[0])) {
               findings.push({
-                id: `md5-${node.loc?.start.line}`,
+                id: `timer-string-${node.loc?.start.line}`,
                 severity: "high",
-                title: "Weak Crypto",
-                description: "MD5 is cryptographically weak",
+                title: `${node.callee.object.name} with String`,
+                description: "String in timer is like eval()",
                 file: filename,
                 line: node.loc?.start.line || 0,
-                code: "crypto.createHash('md5')",
-                fix: "Use SHA-256",
-                category: "Crypto",
-                cwe: "CWE-327",
-                owasp: "A02",
-                confidence: 90,
+                code: `${node.callee.object.name}("...")`,
+                fix: "Use arrow function: setTimeout(() => ..., ms)",
+                category: "Injection",
+                cwe: "CWE-95",
+                owasp: "A03",
+                confidence: 85,
               });
             }
           }
