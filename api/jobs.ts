@@ -166,11 +166,10 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
       .update({ progress: 50 })
       .eq("id", jobId);
 
-    // Scan files with AST analyzer
+    // Scan files with AST analyzer (import once)
+    const { analyzeFile } = await import("./scanner/analyzer");
     const vulnerabilities: any[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const { analyzeFile } = await import("./scanner/analyzer");
+    for (const file of files) {
       const result = analyzeFile(file.content, file.path);
       vulnerabilities.push(...result.findings);
     }
@@ -256,6 +255,12 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
 async function fetchAllFiles(repoName: string, branch: string, headers: Record<string, string>) {
   const files: Array<{ path: string; content: string; language: string }> = [];
   const scanned = new Set<string>();
+  const fileQueue: string[] = [];
+  
+  const FIRST_DIR_FETCH = 30;
+  const MAX_FILES = 35;
+  const MAX_DEPTH = 3;
+  const BATCH_SIZE = 8;
 
   async function fetchDir(path: string) {
     const url = `https://api.github.com/repos/${repoName}/contents/${path}?ref=${branch}`;
@@ -265,22 +270,37 @@ async function fetchAllFiles(repoName: string, branch: string, headers: Record<s
     const items = await res.json();
     if (!Array.isArray(items)) return;
 
-    for (const item of items.slice(0, 60)) {
+    const dirsToFetch: string[] = [];
+    const filesToFetch: Array<{url: string; name: string; size: number}> = [];
+
+    for (const item of items.slice(0, FIRST_DIR_FETCH)) {
       if (item.type === "file" && !scanned.has(item.path)) {
         scanned.add(item.path);
 
-        if (!item.name.match(/\.(png|jpg|jpeg|gif|pdf|zip|tar|gz|lock|svg|ico)$/i)) {
-          const fileRes = await fetch(item.download_url, { headers });
-          if (fileRes.ok && item.size < 40000) {
-            files.push({
-              path: item.path,
-              content: await fileRes.text(),
-              language: getLanguage(item.name),
-            });
-          }
+        if (!item.name.match(/\.(png|jpg|jpeg|gif|pdf|zip|tar|gz|lock|svg|ico|json|md|txt|yml|yaml)$/i)) {
+          filesToFetch.push({ url: item.download_url, name: item.path, size: item.size });
         }
-      } else if (item.type === "dir" && item.path.split("/").length < 4 && files.length < 40) {
-        await fetchDir(item.path);
+      } else if (item.type === "dir" && item.path.split("/").length < MAX_DEPTH && dirsToFetch.length < 5) {
+        dirsToFetch.push(item.path);
+      }
+    }
+
+    for (const file of filesToFetch.slice(0, MAX_FILES)) {
+      if (file.size < 35000) {
+        const fileRes = await fetch(file.url, { headers });
+        if (fileRes.ok) {
+          files.push({
+            path: file.name,
+            content: await fileRes.text(),
+            language: getLanguage(file.name),
+          });
+        }
+      }
+    }
+
+    for (const dir of dirsToFetch) {
+      if (files.length < MAX_FILES * 2) {
+        await fetchDir(dir);
       }
     }
   }

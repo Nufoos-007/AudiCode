@@ -27,10 +27,11 @@ const Navbar = () => {
   }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
     sessionStorage.removeItem("auditRepo");
     sessionStorage.removeItem("github_repos");
-    navigate("/");
+    sessionStorage.removeItem("current_user_id");
+    await supabase.auth.signOut();
+    navigate("/", { replace: true });
   };
 
   return (

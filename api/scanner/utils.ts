@@ -29,7 +29,7 @@ export function getParentFunction(
   const before = Math.max(0, line - 1);
   const after = Math.min(lines.length, line + 5);
   
-  let depth = 0;
+  const depth = 0;
   let funcStart = -1;
   
   for (let i = before; i >= 0; i--) {

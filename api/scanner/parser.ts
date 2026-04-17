@@ -62,7 +62,7 @@ export function parseCode(code: string, filename: string): ParsedFile {
 
   if (language === "typescript" || filename.endsWith(".tsx")) {
     plugins = ["jsx", "typescript"];
-  } else if (language === "javascript") {
+  } else if (language === "javascript" || filename.endsWith(".jsx")) {
     plugins = ["jsx"];
   }
 

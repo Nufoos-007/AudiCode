@@ -5,63 +5,53 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export const signInWithGitHub = async () => {
-  // First, sign out and clear everything
-  await supabase.auth.signOut();
+function clearAllAuthData() {
   sessionStorage.clear();
   localStorage.clear();
+  document.cookie.split(";").forEach(c => {
+    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+  });
+}
+
+export const signInWithGitHub = async () => {
+  clearAllAuthData();
+  await supabase.auth.signOut();
   
-  // Use Supabase OAuth - it will handle the flow
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "github",
     options: {
-      redirectTo: window.location.origin + "/dashboard?fresh_login=true",
+      redirectTo: window.location.origin + "/dashboard",
+      scopes: "repo",
+      skipRedirectNonce: true,
     },
   });
   
-  if (error) {
-    // If OAuth URL was returned, redirect manually
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
-      throw error;
-    }
-  }
+  if (error) throw error;
+  if (data.url) window.location.href = data.url;
 };
 
 export const signInWithGoogle = async () => {
-  // First, sign out and clear everything
+  clearAllAuthData();
   await supabase.auth.signOut();
-  sessionStorage.clear();
-  localStorage.clear();
   
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.origin + "/dashboard?fresh_login=true",
-      queryParams: {
-        prompt: "select_account",
-      },
+      redirectTo: window.location.origin + "/dashboard",
     },
   });
   
-  if (error) {
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
-      throw error;
-    }
-  }
+  if (error) throw error;
+  if (data.url) window.location.href = data.url;
 };
 
 export const signOut = async () => {
+  clearAllAuthData();
+  await supabase.auth.signOut();
   sessionStorage.clear();
-  localStorage.clear();
-  
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-  
-  window.location.href = "/";
+  localStorage.removeItem("supabase.auth.token");
+  sessionStorage.removeItem("supabase.auth.refresh_token");
+  window.location.replace(window.location.origin);
 };
 
 export const getSession = async () => {

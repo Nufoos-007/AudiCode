@@ -9,7 +9,8 @@ import SeverityPill from "../components/SeverityPill";
 import VulnerabilityCard from "../components/VulnerabilityCard";
 import CreditsBar from "../components/CreditsBar";
 import { Severity } from "../types/audit";
-import { Loader2, FolderSearch, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, FolderSearch, ChevronDown, ChevronRight, AlertCircle, CheckCircle } from "lucide-react";
+import { toast } from "sonner";
 
 interface JobStatus {
   id: string;
@@ -35,9 +36,12 @@ const Dashboard = () => {
   const [analyzingRepo, setAnalyzingRepo] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [authProvider, setAuthProvider] = useState<string | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
+  
+  const isGitHubUser = authProvider === "github";
 
   // Poll for job status - separate function to avoid stale closure
   const pollJobStatus = useCallback(async (jobId: string, repoName: string) => {
@@ -56,7 +60,7 @@ const Dashboard = () => {
           clearInterval(pollingRef.current || 0);
           pollingRef.current = null;
           setAnalyzingRepo(null);
-          alert("Scan failed: Job not found. Please try again.");
+          toast.error("Scan failed: Job not found. Please try again.");
         }
         return;
       }
@@ -69,7 +73,7 @@ const Dashboard = () => {
         clearInterval(pollingRef.current || 0);
         pollingRef.current = null;
         setAnalyzingRepo(null);
-        alert("Scan timed out. The repository may be too large. Try a smaller repo.");
+        toast.error("Scan timed out. The repository may be too large. Try a smaller repo.");
         return;
       }
 
@@ -99,11 +103,11 @@ const Dashboard = () => {
           setRepoInfo(finalResult);
           setHasAudited(true);
           const elapsed = ((Date.now() - startTimeRef.current) / 1000).toFixed(1);
-          console.log(`Scan completed in ${elapsed}s`);
+          toast.success(`Scan completed in ${elapsed}s! Found ${finalResult.scan?.vulnerabilities?.length || 0} issues.`);
           sessionStorage.setItem("auditRepo", JSON.stringify(finalResult));
         } else if (job.status === "failed") {
           setAnalyzingRepo(null);
-          alert(`Scan failed: ${job.error || "Unknown error. Please try again."}`);
+          toast.error(`Scan failed: ${job.error || "Unknown error. Please try again."}`);
         }
         
         setAnalyzingRepo(null);
@@ -157,7 +161,7 @@ const Dashboard = () => {
         } else {
           console.error("Failed to create job:", response.status, response.statusText);
           setAnalyzingRepo(null);
-          alert(`Failed to start scan: ${response.statusText}`);
+          toast.error(`Failed to start scan: ${response.statusText}`);
         }
       } catch (err) {
         console.error("Auto-audit failed:", err);
@@ -169,6 +173,10 @@ const Dashboard = () => {
       const currentUser = await getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
+        
+        // Get provider from user metadata
+        const provider = currentUser.app_metadata?.provider || currentUser.user_metadata?.provider;
+        setAuthProvider(provider);
         
         // Clear previous data if different user
         const storedUser = sessionStorage.getItem("current_user_id");
@@ -314,17 +322,17 @@ const Dashboard = () => {
         } else {
           console.error("No jobId in response:", result);
           setAnalyzingRepo(null);
-          alert("Failed to start scan. Please try again.");
+          toast.error("Failed to start scan. Please try again.");
         }
       } else {
         console.error("Failed to create scan job:", response.status);
         setAnalyzingRepo(null);
-        alert(`Failed to start scan: ${response.statusText}`);
+        toast.error(`Failed to start scan: ${response.statusText}`);
       }
     } catch (err) {
       console.error("Error analyzing repo:", err);
       setAnalyzingRepo(null);
-      alert("Failed to analyze repo. Please try again.");
+      toast.error("Failed to analyze repo. Please try again.");
     }
   }, [analyzingRepo, user, pollJobStatus]);
 
@@ -390,22 +398,24 @@ const Dashboard = () => {
             <HeroInput />
           </div>
           
-          {/* My Repos Button */}
-          <button
-            onClick={fetchUserRepos}
-            disabled={loadingRepos}
-            className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {loadingRepos ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : showRepos ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
-            <FolderSearch className="w-4 h-4" />
-            Audit My Repos
-          </button>
+          {/* My Repos Button - Only show for GitHub users */}
+          {isGitHubUser && (
+            <button
+              onClick={fetchUserRepos}
+              disabled={loadingRepos}
+              className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {loadingRepos ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : showRepos ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+              <FolderSearch className="w-4 h-4" />
+              Audit My Repos
+            </button>
+          )}
 
           {/* User Repos Dropdown */}
           {showRepos && (
@@ -535,7 +545,7 @@ const Dashboard = () => {
                     const vulns = data.vulnerabilities || [];
                     const counts = { critical: 0, high: 0, medium: 0, low: 0 };
                     vulns.forEach((v: any) => {
-                      if (counts.hasOwnProperty(v.severity)) {
+                      if (v.severity in counts) {
                         counts[v.severity as keyof typeof counts]++;
                       }
                     });
