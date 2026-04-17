@@ -150,10 +150,18 @@ const Dashboard = () => {
             pollingRef.current = window.setInterval(() => {
               pollJobStatus(result.jobId, repoName);
             }, 2000);
+          } else {
+            console.error("No jobId in response:", result);
+            setAnalyzingRepo(null);
           }
+        } else {
+          console.error("Failed to create job:", response.status, response.statusText);
+          setAnalyzingRepo(null);
+          alert(`Failed to start scan: ${response.statusText}`);
         }
       } catch (err) {
         console.error("Auto-audit failed:", err);
+        setAnalyzingRepo(null);
       }
     };
 
@@ -303,14 +311,20 @@ const Dashboard = () => {
           pollingRef.current = window.setInterval(() => {
             pollJobStatus(result.jobId, repoName);
           }, 2000);
+        } else {
+          console.error("No jobId in response:", result);
+          setAnalyzingRepo(null);
+          alert("Failed to start scan. Please try again.");
         }
       } else {
-        console.error("Failed to create scan job");
+        console.error("Failed to create scan job:", response.status);
         setAnalyzingRepo(null);
+        alert(`Failed to start scan: ${response.statusText}`);
       }
     } catch (err) {
       console.error("Error analyzing repo:", err);
       setAnalyzingRepo(null);
+      alert("Failed to analyze repo. Please try again.");
     }
   }, [analyzingRepo, user, pollJobStatus]);
 

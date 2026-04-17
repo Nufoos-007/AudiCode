@@ -46,11 +46,10 @@ const HeroInput = () => {
         return;
       }
 
-      const repoInfo = await fetchRepoInfo(repo);
-      sessionStorage.setItem("auditRepo", JSON.stringify(repoInfo));
-      navigate("/dashboard");
+      // Navigate to dashboard with audit param - dashboard will handle the scan
+      navigate("/dashboard?audit=" + encodeURIComponent(repoUrl));
     } catch (err: any) {
-      setError(err.message || "Failed to fetch repo");
+      setError(err.message || "Failed to validate repo");
       setIsLoading(false);
     }
   };
