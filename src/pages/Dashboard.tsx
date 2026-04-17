@@ -37,9 +37,13 @@ const Dashboard = () => {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const inputRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   // Poll for job status - separate function to avoid stale closure
   const pollJobStatus = useCallback(async (jobId: string, repoName: string) => {
+    const elapsed = Date.now() - startTimeRef.current;
+    const maxTime = 120000; // 2 minutes max
+
     try {
       const response = await fetch("/api/jobs", {
         method: "POST",
@@ -47,45 +51,66 @@ const Dashboard = () => {
         body: JSON.stringify({ jobId }),
       });
 
-      if (response.ok) {
-        const job: JobStatus = await response.json();
-        setJobStatus(job);
-
-        if (job.status === "completed" || job.status === "failed") {
+      if (!response.ok) {
+        if (response.status === 404) {
           clearInterval(pollingRef.current || 0);
           pollingRef.current = null;
-          
-          if (job.status === "completed") {
-            const mappedVulns = (job.vulnerabilities || []).map((v: any) => ({
-              ...v,
-              badCode: v.code || "",
-              fixedCode: v.fix || "",
-            }));
-            
-            const finalResult = {
-              ...job,
-              repo: { name: repoName },
-              scan: {
-                score: job.score,
-                grade: job.grade,
-                vulnerabilities: mappedVulns,
-                confidence: job.confidence,
-                files_scanned: job.files_scanned,
-              },
-            };
-            
-            setRepoInfo(finalResult);
-            setHasAudited(true);
-            sessionStorage.setItem("auditRepo", JSON.stringify(finalResult));
-          } else {
-            console.error("Scan failed:", job.error);
-          }
           setAnalyzingRepo(null);
-          
-          setTimeout(() => {
-            document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
-          }, 300);
+          alert("Scan failed: Job not found. Please try again.");
         }
+        return;
+      }
+
+      const job: JobStatus = await response.json();
+      setJobStatus(job);
+
+      // Timeout check
+      if (elapsed > maxTime) {
+        clearInterval(pollingRef.current || 0);
+        pollingRef.current = null;
+        setAnalyzingRepo(null);
+        alert("Scan timed out. The repository may be too large. Try a smaller repo.");
+        return;
+      }
+
+      if (job.status === "completed" || job.status === "failed") {
+        clearInterval(pollingRef.current || 0);
+        pollingRef.current = null;
+        
+        if (job.status === "completed") {
+          const mappedVulns = (job.vulnerabilities || []).map((v: any) => ({
+            ...v,
+            badCode: v.code || "",
+            fixedCode: v.fix || "",
+          }));
+          
+          const finalResult = {
+            ...job,
+            repo: { name: repoName },
+            scan: {
+              score: job.score,
+              grade: job.grade,
+              vulnerabilities: mappedVulns,
+              confidence: job.confidence,
+              files_scanned: job.files_scanned,
+            },
+          };
+          
+          setRepoInfo(finalResult);
+          setHasAudited(true);
+          const elapsed = ((Date.now() - startTimeRef.current) / 1000).toFixed(1);
+          console.log(`Scan completed in ${elapsed}s`);
+          sessionStorage.setItem("auditRepo", JSON.stringify(finalResult));
+        } else if (job.status === "failed") {
+          setAnalyzingRepo(null);
+          alert(`Scan failed: ${job.error || "Unknown error. Please try again."}`);
+        }
+        
+        setAnalyzingRepo(null);
+        
+        setTimeout(() => {
+          document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+        }, 300);
       }
     } catch (err) {
       console.error("Polling error:", err);
@@ -119,6 +144,7 @@ const Dashboard = () => {
           if (result.jobId) {
             setCurrentJobId(result.jobId);
             setJobStatus({ id: result.jobId, status: "queued", progress: 0 });
+            startTimeRef.current = Date.now();
             
             const repoName = repoUrl.replace(/https?:\/\/github\.com\//, "");
             pollingRef.current = window.setInterval(() => {
@@ -272,6 +298,7 @@ const Dashboard = () => {
         if (result.jobId) {
           setCurrentJobId(result.jobId);
           setJobStatus({ id: result.jobId, status: "queued", progress: 0 });
+          startTimeRef.current = Date.now();
           
           pollingRef.current = window.setInterval(() => {
             pollJobStatus(result.jobId, repoName);
@@ -445,7 +472,12 @@ const Dashboard = () => {
                     <p className="font-mono text-sm">Analyzing {analyzingRepo}...</p>
                     <p className="text-xs text-muted-foreground">
                       {jobStatus.status === "queued" && "Waiting in queue..."}
-                      {jobStatus.status === "running" && `Scanning... ${jobStatus.progress}%`}
+                      {jobStatus.status === "running" && jobStatus.progress < 20 && "Fetching repository files..."}
+                      {jobStatus.status === "running" && jobStatus.progress >= 20 && jobStatus.progress < 50 && "Parsing code structure..."}
+                      {jobStatus.status === "running" && jobStatus.progress >= 50 && jobStatus.progress < 70 && "Scanning for vulnerabilities..."}
+                      {jobStatus.status === "running" && jobStatus.progress >= 70 && jobStatus.progress < 85 && "Analyzing dependencies..."}
+                      {jobStatus.status === "running" && jobStatus.progress >= 85 && "Generating report..."}
+                      {jobStatus.status === "completed" && "Complete!"}
                     </p>
                   </div>
                 </div>
@@ -454,6 +486,13 @@ const Dashboard = () => {
                     className="bg-primary h-2 rounded-full transition-all duration-500" 
                     style={{ width: `${jobStatus.progress}%` }}
                   />
+                </div>
+                <div className="mt-2 text-center">
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {jobStatus.progress < 30 && "⏱ Est. 10-20 seconds"}
+                    {jobStatus.progress >= 30 && jobStatus.progress < 70 && "⏱ Est. 15-30 seconds"}
+                    {jobStatus.progress >= 70 && "⏱ Almost done..."}
+                  </p>
                 </div>
               </div>
             )}
