@@ -137,8 +137,11 @@ async function processScanAsync(jobId: string, repoUrl: string, token?: string, 
     const headers: Record<string, string> = {
       Accept: "application/vnd.github.v3+json",
     };
-    if (token) {
-      headers.Authorization = `token ${token}`;
+    
+    // Use user's token if available, otherwise use env token (for Google/email logins)
+    const githubToken = token || process.env.VITE_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+    if (githubToken) {
+      headers.Authorization = `token ${githubToken}`;
     }
 
     const repoRes = await fetch(`https://api.github.com/repos/${repoName}`, { headers });
