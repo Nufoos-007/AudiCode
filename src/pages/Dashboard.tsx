@@ -56,13 +56,19 @@ const Dashboard = () => {
           pollingRef.current = null;
           
           if (job.status === "completed") {
+            const mappedVulns = (job.vulnerabilities || []).map((v: any) => ({
+              ...v,
+              badCode: v.code || "",
+              fixedCode: v.fix || "",
+            }));
+            
             const finalResult = {
               ...job,
               repo: { name: repoName },
               scan: {
                 score: job.score,
                 grade: job.grade,
-                vulnerabilities: job.vulnerabilities || [],
+                vulnerabilities: mappedVulns,
                 confidence: job.confidence,
                 files_scanned: job.files_scanned,
               },
