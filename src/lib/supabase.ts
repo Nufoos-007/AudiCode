@@ -10,6 +10,9 @@ export const signInWithGitHub = async () => {
     provider: "github",
     options: {
       redirectTo: window.location.origin + "/dashboard",
+      queryParams: {
+        prompt: "select_account", // Force GitHub to show account chooser
+      },
     },
   });
   if (error) throw error;
@@ -21,6 +24,9 @@ export const signInWithGoogle = async () => {
     provider: "google",
     options: {
       redirectTo: window.location.origin + "/dashboard",
+      queryParams: {
+        prompt: "select_account", // Force Google to show account chooser
+      },
     },
   });
   if (error) throw error;
@@ -28,6 +34,11 @@ export const signInWithGoogle = async () => {
 };
 
 export const signOut = async () => {
+  // Clear local storage first
+  sessionStorage.removeItem("auditRepo");
+  sessionStorage.removeItem("github_repos");
+  sessionStorage.removeItem("current_user_id");
+  
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 };
