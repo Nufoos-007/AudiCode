@@ -6,13 +6,13 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const signInWithGitHub = async () => {
+  // Clear all auth data first to force fresh login
+  await supabase.auth.signOut();
+  
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "github",
     options: {
       redirectTo: window.location.origin + "/dashboard",
-      queryParams: {
-        prompt: "select_account", // Force GitHub to show account chooser
-      },
     },
   });
   if (error) throw error;
@@ -20,13 +20,13 @@ export const signInWithGitHub = async () => {
 };
 
 export const signInWithGoogle = async () => {
+  // Clear all auth data first to force fresh login
+  await supabase.auth.signOut();
+  
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
       redirectTo: window.location.origin + "/dashboard",
-      queryParams: {
-        prompt: "select_account", // Force Google to show account chooser
-      },
     },
   });
   if (error) throw error;
@@ -34,13 +34,15 @@ export const signInWithGoogle = async () => {
 };
 
 export const signOut = async () => {
-  // Clear local storage first
-  sessionStorage.removeItem("auditRepo");
-  sessionStorage.removeItem("github_repos");
-  sessionStorage.removeItem("current_user_id");
+  // Clear everything - session storage, local storage, and Supabase session
+  sessionStorage.clear();
+  localStorage.clear();
   
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+  
+  // Force page reload to clear any cached state
+  window.location.href = "/";
 };
 
 export const getSession = async () => {
