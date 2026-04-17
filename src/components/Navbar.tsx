@@ -71,7 +71,8 @@ const Navbar = () => {
             <li>
               <button
                 onClick={handleSignOut}
-                className="font-mono text-xs font-semibold bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors"
+                style={{ backgroundColor: "#dc2626", color: "white" }}
+                className="font-mono text-xs font-semibold px-4 py-2 rounded-md hover:opacity-80 transition-opacity"
               >
                 Sign Out
               </button>
@@ -154,7 +155,8 @@ const Navbar = () => {
                 <li>
                   <button
                     onClick={() => { handleSignOut(); setMobileMenuOpen(false); }}
-                    className="block w-full text-left font-mono text-sm font-semibold bg-red-600 text-white px-4 py-2 rounded-md text-center"
+                    style={{ backgroundColor: "#dc2626", color: "white" }}
+                    className="block w-full text-left font-mono text-sm font-semibold px-4 py-2 rounded-md text-center"
                   >
                     Sign Out
                   </button>
