@@ -9,17 +9,12 @@ const Auth = () => {
   const [authProvider, setAuthProvider] = useState<"google" | "github" | null>(null);
 
   useEffect(() => {
-    // Check for OAuth callback - hash or query params
-    const hash = window.location.hash;
-    const params = new URLSearchParams(window.location.search);
-    if (hash.includes("access_token") || params.has("code")) {
-      // User returned from OAuth, check session
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          navigate("/dashboard", { replace: true });
-        }
-      });
-    }
+    // Check for OAuth callback
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        navigate("/dashboard", { replace: true });
+      }
+    });
   }, [navigate]);
 
   const handleGitHubLogin = async () => {
