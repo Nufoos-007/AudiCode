@@ -400,32 +400,22 @@ const Dashboard = () => {
             <HeroInput />
           </div>
           
-          {/* Repo Access - for GitHub users show their repos, for others show link */}
-          {isGitHubUser ? (
-            <button
-              onClick={fetchUserRepos}
-              disabled={loadingRepos}
-              className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {loadingRepos ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : showRepos ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-              <FolderSearch className="w-4 h-4" />
-              My GitHub Repos
-            </button>
-          ) : (
-            <button
-              onClick={() => window.open("https://github.com", "_blank")}
-              className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <FolderSearch className="w-4 h-4" />
-              Browse Public Repos
-            </button>
-          )}
+          {/* Repo Access Button */}
+          <button
+            onClick={isGitHubUser ? fetchUserRepos : () => window.open("https://github.com", "_blank")}
+            disabled={loadingRepos}
+            className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {loadingRepos ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : showRepos ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+            <FolderSearch className="w-4 h-4" />
+            {isGitHubUser ? "My GitHub Repos" : "Browse Public Repos"}
+          </button>
 
           {/* User Repos Dropdown */}
           {showRepos && (
