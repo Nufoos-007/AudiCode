@@ -6,42 +6,61 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const signInWithGitHub = async () => {
-  // Clear all auth data first to force fresh login
+  // First, sign out and clear everything
   await supabase.auth.signOut();
+  sessionStorage.clear();
+  localStorage.clear();
   
+  // Use Supabase OAuth - it will handle the flow
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "github",
     options: {
-      redirectTo: window.location.origin + "/dashboard",
+      redirectTo: window.location.origin + "/dashboard?fresh_login=true",
     },
   });
-  if (error) throw error;
-  return data;
+  
+  if (error) {
+    // If OAuth URL was returned, redirect manually
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      throw error;
+    }
+  }
 };
 
 export const signInWithGoogle = async () => {
-  // Clear all auth data first to force fresh login
+  // First, sign out and clear everything
   await supabase.auth.signOut();
+  sessionStorage.clear();
+  localStorage.clear();
   
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.origin + "/dashboard",
+      redirectTo: window.location.origin + "/dashboard?fresh_login=true",
+      queryParams: {
+        prompt: "select_account",
+      },
     },
   });
-  if (error) throw error;
-  return data;
+  
+  if (error) {
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      throw error;
+    }
+  }
 };
 
 export const signOut = async () => {
-  // Clear everything - session storage, local storage, and Supabase session
   sessionStorage.clear();
   localStorage.clear();
   
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   
-  // Force page reload to clear any cached state
   window.location.href = "/";
 };
 
