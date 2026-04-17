@@ -10,7 +10,7 @@ import VulnerabilityCard from "../components/VulnerabilityCard";
 import CreditsBar from "../components/CreditsBar";
 import { Severity } from "../types/audit";
 import { Loader2, FolderSearch, ChevronDown, ChevronRight, AlertCircle, CheckCircle } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 
 interface JobStatus {
   id: string;
@@ -174,9 +174,11 @@ const Dashboard = () => {
       if (currentUser) {
         setUser(currentUser);
         
-        // Get provider from user metadata
-        const provider = currentUser.app_metadata?.provider || currentUser.user_metadata?.provider;
-        setAuthProvider(provider);
+        // Get provider from session metadata
+        const { data: { session } } = await supabase.auth.getSession();
+        const provider = session?.user?.app_metadata?.provider || session?.user?.user_metadata?.provider || null;
+        setAuthProvider(provider || "google");
+        console.log("Provider:", provider);
         
         // Clear previous data if different user
         const storedUser = sessionStorage.getItem("current_user_id");
@@ -398,8 +400,8 @@ const Dashboard = () => {
             <HeroInput />
           </div>
           
-          {/* My Repos Button - Only show for GitHub users */}
-          {isGitHubUser && (
+          {/* Repo Access - for GitHub users show their repos, for others show link */}
+          {isGitHubUser ? (
             <button
               onClick={fetchUserRepos}
               disabled={loadingRepos}
@@ -413,7 +415,15 @@ const Dashboard = () => {
                 <ChevronRight className="w-4 h-4" />
               )}
               <FolderSearch className="w-4 h-4" />
-              Audit My Repos
+              My GitHub Repos
+            </button>
+          ) : (
+            <button
+              onClick={() => window.open("https://github.com", "_blank")}
+              className="flex items-center gap-2 px-4 py-2 font-mono text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <FolderSearch className="w-4 h-4" />
+              Browse Public Repos
             </button>
           )}
 
