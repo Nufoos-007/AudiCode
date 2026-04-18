@@ -14,40 +14,15 @@ function clearAllAuthData() {
 }
 
 export const signInWithGitHub = async () => {
-  // Clear EVERYTHING before OAuth
-  sessionStorage.clear();
-  localStorage.clear();
-  document.cookie = "";
-  localStorage.setItem("supabase_auth_token", "");
-  
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "github",
-    options: {
-      redirectTo: window.location.origin + "/auth?loggedin=1",
-      scopes: "repo",
-    },
-  });
-  
-  if (error) throw error;
-  if (data.url) window.location.href = data.url;
+  const redirectTo = window.location.origin + "/auth?loggedin=1";
+  const authUrl = `https://bkpifjpeaitfoiqulgaw.supabase.co/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(redirectTo)}`;
+  window.location.href = authUrl;
 };
 
 export const signInWithGoogle = async () => {
-  // Clear EVERYTHING before OAuth
-  sessionStorage.clear();
-  localStorage.clear();
-  document.cookie = "";
-  localStorage.setItem("supabase_auth_token", "");
-  
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: window.location.origin + "/auth?loggedin=1",
-    },
-  });
-  
-  if (error) throw error;
-  if (data.url) window.location.href = data.url;
+  const redirectTo = window.location.origin + "/auth?loggedin=1";
+  const authUrl = `https://bkpifjpeaitfoiqulgaw.supabase.co/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+  window.location.href = authUrl;
 };
 
 export const signOut = async () => {
