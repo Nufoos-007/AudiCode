@@ -14,13 +14,16 @@ function clearAllAuthData() {
 }
 
 export const signInWithGitHub = async () => {
-  clearAllAuthData();
-  await supabase.auth.signOut();
+  // Clear EVERYTHING before OAuth
+  sessionStorage.clear();
+  localStorage.clear();
+  document.cookie = "";
+  localStorage.setItem("supabase_auth_token", "");
   
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "github",
     options: {
-      redirectTo: window.location.origin + "/auth",
+      redirectTo: window.location.origin + "/auth?loggedin=1",
       scopes: "repo",
     },
   });
@@ -30,13 +33,16 @@ export const signInWithGitHub = async () => {
 };
 
 export const signInWithGoogle = async () => {
-  clearAllAuthData();
-  await supabase.auth.signOut();
+  // Clear EVERYTHING before OAuth
+  sessionStorage.clear();
+  localStorage.clear();
+  document.cookie = "";
+  localStorage.setItem("supabase_auth_token", "");
   
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.origin + "/auth",
+      redirectTo: window.location.origin + "/auth?loggedin=1",
     },
   });
   

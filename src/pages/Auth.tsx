@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithGitHub, signInWithGoogle, getCurrentUser } from "../lib/supabase";
 
 const Auth = () => {
@@ -9,19 +9,19 @@ const Auth = () => {
   const [authProvider, setAuthProvider] = useState<"google" | "github" | null>(null);
 
   useEffect(() => {
-    // Check for OAuth token in URL hash
-    const hash = window.location.hash;
-    if (hash && hash.includes("access_token")) {
-      const params = new URLSearchParams(hash.substring(1));
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-      if (accessToken) {
-        getCurrentUser().then(user => {
-          if (user) {
-            navigate("/dashboard", { replace: true });
-          }
-        });
+    // Check for OAuth token in hash OR loggedin=1 query
+    const checkAuth = async () => {
+      const user = await getCurrentUser();
+      if (user) {
+        navigate("/dashboard", { replace: true });
       }
+    };
+    
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    
+    if (params.get("loggedin") === "1" || hash.includes("access_token")) {
+      checkAuth();
     }
   }, [navigate]);
 
