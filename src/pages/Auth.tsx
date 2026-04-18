@@ -9,19 +9,12 @@ const Auth = () => {
   const [authProvider, setAuthProvider] = useState<"google" | "github" | null>(null);
 
   useEffect(() => {
-    // Check for OAuth token in hash OR loggedin=1 query
-    const checkAuth = async () => {
-      const user = await getCurrentUser();
-      if (user) {
-        navigate("/dashboard", { replace: true });
-      }
-    };
-    
-    const params = new URLSearchParams(window.location.search);
+    // Check for OAuth token in hash
     const hash = window.location.hash;
-    
-    if (params.get("loggedin") === "1" || hash.includes("access_token")) {
-      checkAuth();
+    if (hash.includes("access_token")) {
+      setTimeout(() => {
+        navigate("/dashboard", { replace: true });
+      }, 500);
     }
   }, [navigate]);
 
