@@ -22,7 +22,6 @@ export const signInWithGitHub = async () => {
     options: {
       redirectTo: window.location.origin + "/dashboard",
       scopes: "repo",
-      skipRedirectNonce: true,
     },
   });
   

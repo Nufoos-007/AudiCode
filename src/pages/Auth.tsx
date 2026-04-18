@@ -1,29 +1,17 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { signInWithGitHub, signInWithGoogle, supabase } from "../lib/supabase";
+import { useState } from "react";
+import { signInWithGitHub, signInWithGoogle } from "../lib/supabase";
 
 const Auth = () => {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [authProvider, setAuthProvider] = useState<"google" | "github" | null>(null);
-
-  useEffect(() => {
-    // Check for OAuth callback
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session) {
-        navigate("/dashboard", { replace: true });
-      }
-    });
-  }, [navigate]);
 
   const handleGitHubLogin = async () => {
     setLoading(true);
     setError("");
     setAuthProvider("github");
     try {
-      const { data, error } = await signInWithGitHub();
-      if (error) throw error;
+      await signInWithGitHub();
     } catch (err: any) {
       setError(err.message || "Login failed");
       setLoading(false);
@@ -35,8 +23,7 @@ const Auth = () => {
     setError("");
     setAuthProvider("google");
     try {
-      const { data, error } = await signInWithGoogle();
-      if (error) throw error;
+      await signInWithGoogle();
     } catch (err: any) {
       setError(err.message || "Login failed");
       setLoading(false);
