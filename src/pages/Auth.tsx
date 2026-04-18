@@ -1,10 +1,29 @@
-import { useState } from "react";
-import { signInWithGitHub, signInWithGoogle } from "../lib/supabase";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { signInWithGitHub, signInWithGoogle, getCurrentUser } from "../lib/supabase";
 
 const Auth = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [authProvider, setAuthProvider] = useState<"google" | "github" | null>(null);
+
+  useEffect(() => {
+    // Check for OAuth token in URL hash
+    const hash = window.location.hash;
+    if (hash && hash.includes("access_token")) {
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      if (accessToken) {
+        getCurrentUser().then(user => {
+          if (user) {
+            navigate("/dashboard", { replace: true });
+          }
+        });
+      }
+    }
+  }, [navigate]);
 
   const handleGitHubLogin = async () => {
     setLoading(true);
