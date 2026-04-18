@@ -28,6 +28,25 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    // Check for OAuth token in URL hash and set session
+    const hash = window.location.hash;
+    if (hash && hash.includes("access_token")) {
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      if (accessToken) {
+        supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || "",
+        }).then(() => {
+          window.location.hash = "";
+          getCurrentUser().then(setUser);
+        });
+      }
+    }
+  }, []);
   const [repoInfo, setRepoInfo] = useState<any>(null);
   const [hasAudited, setHasAudited] = useState(false);
   const [showRepos, setShowRepos] = useState(false);
