@@ -14,15 +14,27 @@ function clearAllAuthData() {
 }
 
 export const signInWithGitHub = async () => {
-  const redirectTo = window.location.origin + "/auth?loggedin=1";
-  const authUrl = `https://bkpifjpeaitfoiqulgaw.supabase.co/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(redirectTo)}`;
-  window.location.href = authUrl;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "github",
+    options: {
+      redirectTo: window.location.origin + "/dashboard",
+    },
+  });
+  
+  if (error) throw error;
+  if (data.url) window.location.href = data.url;
 };
 
 export const signInWithGoogle = async () => {
-  const redirectTo = window.location.origin + "/auth?loggedin=1";
-  const authUrl = `https://bkpifjpeaitfoiqulgaw.supabase.co/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
-  window.location.href = authUrl;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: window.location.origin + "/dashboard",
+    },
+  });
+  
+  if (error) throw error;
+  if (data.url) window.location.href = data.url;
 };
 
 export const signOut = async () => {
