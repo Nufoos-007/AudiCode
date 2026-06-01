@@ -748,18 +748,39 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-      const branch = defaultBranch || 'main';
+      let resolvedBranch = defaultBranch;
       const rawToken = decryptToken(user.accessToken) || process.env.GITHUB_PAT || '';
-      if (!rawToken) {
-        throw new Error('Access token is missing. Please sign in again, or configure GITHUB_PAT on Vercel to allow scanning.');
+      
+      const githubHeaders: Record<string, string> = {
+        'User-Agent': 'AudiCode-Scanner',
+        'Accept': 'application/vnd.github.v3+json',
+      };
+      if (rawToken) {
+        githubHeaders['Authorization'] = `Bearer ${rawToken}`;
+      }
+
+      // Explicitly auto-resolve default branch first if none is passed
+      if (!resolvedBranch) {
+        try {
+          const detailRes = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
+            headers: githubHeaders
+          });
+          if (detailRes.ok) {
+            const detailData = await detailRes.json() as any;
+            resolvedBranch = detailData.default_branch || 'main';
+          } else {
+            console.warn('[Scan] Branch resolution status failed, defaulting to main.');
+            resolvedBranch = 'main';
+          }
+        } catch (err) {
+          console.warn('[Scan] Branch resolution network issue, defaulting to main:', err);
+          resolvedBranch = 'main';
+        }
       }
       
-      const treeUrl = `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`;
+      const treeUrl = `https://api.github.com/repos/${owner}/${name}/git/trees/${resolvedBranch}?recursive=1`;
       const treeResponse = await fetch(treeUrl, {
-        headers: {
-          'Authorization': `Bearer ${rawToken}`,
-          'User-Agent': 'AudiCode-Scanner'
-        }
+        headers: githubHeaders
       });
 
       if (!treeResponse.ok) {
@@ -768,12 +789,15 @@ export default async function handler(req: any, res: any) {
             type: 'empty_repo',
             code: 'EMPTY_REPO',
             repository: `${owner}/${name}`,
-            branch,
+            branch: resolvedBranch,
             message: 'Repository is empty.'
           });
           return;
         }
-        throw new Error(`Failed to read repository assets (Is the default branch correct? Is the repository empty?)`);
+        if (treeResponse.status === 401 || treeResponse.status === 403) {
+          throw new Error('Access to the GitHub repository is unauthorized. Please log out and sign in again to grant permission, or verify GITHUB_PAT configured.');
+        }
+        throw new Error(`Failed to read repository assets (GitHub status: ${treeResponse.status}). If this is a private repository, please check your permissions.`);
       }
 
       const treeData = await treeResponse.json() as any;
@@ -782,7 +806,7 @@ export default async function handler(req: any, res: any) {
           type: 'empty_repo',
           code: 'EMPTY_REPO',
           repository: `${owner}/${name}`,
-          branch,
+          branch: resolvedBranch,
           message: 'Repository is empty.'
         });
         return;
@@ -799,17 +823,28 @@ export default async function handler(req: any, res: any) {
           p.includes('vendor/') ||
           p.includes('coverage/') ||
           p.includes('.git/') ||
-          ext === '.png' ||
-          ext === '.jpg' ||
-          ext === '.ico' ||
-          ext === '.svg' ||
-          ext === '.woff' ||
-          ext === '.lock';
-        const maxLimitSize = (node.size && Number(node.size) <= 50000);
+          ['.png', '.jpg', '.ico', '.svg', '.woff', '.woff2', '.lock', '.zip', '.pdf', '.mp3', '.mp4'].includes(ext);
+        
+        // Safely check node.size, allowing files with undefined/null size to pass as a fallback
+        const maxLimitSize = (node.size === undefined || node.size === null || Number(node.size) <= 75000);
         return !shouldSkip && maxLimitSize;
       });
 
-      const activeFileList = codeFilesToFetch.slice(0, 40);
+      // Prioritize and select the top 12 most security-relevant files for high performance and low latency
+      const priorityWeights = (p: string): number => {
+        const fileName = p.toLowerCase();
+        if (fileName === 'package.json') return 100;
+        if (fileName === 'tsconfig.json' || fileName === 'vite.config.ts' || fileName === 'next.config.js') return 90;
+        if (fileName === '.env.example' || fileName === '.env') return 85;
+        if (fileName.includes('firestore.rules') || fileName.includes('supabase.rules') || fileName.includes('schema.sql') || fileName.includes('schema.prisma')) return 80;
+        if (fileName === 'server.ts' || fileName === 'server.js' || fileName === 'app.ts' || fileName === 'app.js' || fileName === 'index.ts' || fileName === 'index.js') return 75;
+        if (fileName.includes('routes/') || fileName.includes('controllers/') || fileName.includes('api/')) return 60;
+        if (fileName.endsWith('.ts') || fileName.endsWith('.tsx') || fileName.endsWith('.js') || fileName.endsWith('.jsx')) return 50;
+        return 10;
+      };
+
+      const sortedFileList = [...codeFilesToFetch].sort((a, b) => priorityWeights(b.path) - priorityWeights(a.path));
+      const activeFileList = sortedFileList.slice(0, 12);
       const filesContents: { path: string; content: string }[] = [];
 
       await Promise.all(activeFileList.map(async (fileNode: any) => {
@@ -817,8 +852,7 @@ export default async function handler(req: any, res: any) {
           const fileContentUrl = fileNode.url;
           const blobResponse = await fetch(fileContentUrl, {
             headers: {
-              'Authorization': `Bearer ${rawToken}`,
-              'User-Agent': 'AudiCode-Scanner',
+              ...githubHeaders,
               'Accept': 'application/vnd.github.v3.raw'
             }
           });
@@ -833,7 +867,7 @@ export default async function handler(req: any, res: any) {
       }));
 
       if (filesContents.length === 0) {
-        throw new Error('No compatible text source files under 50KB were found in this repository.');
+        throw new Error('No compatible text source files under 75KB were found in this repository.');
       }
 
       const filesDiscovered = codeFilesToFetch.length;

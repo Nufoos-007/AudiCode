@@ -375,19 +375,29 @@ export async function runScan(
       const pkg = JSON.parse(pkgFile.content);
       const allDeps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
       
-      const depQueries = Object.entries(allDeps).map(async ([depName, versionSpec]) => {
+      const entries = Object.entries(allDeps);
+      // Limit to at most 8 live checks for performance; the rest fall back to offline signatures of known vulnerabilities
+      const liveSubset = entries.slice(0, 8);
+      const offlineSubset = entries.slice(8);
+      
+      const depQueries = liveSubset.map(async ([depName, versionSpec]) => {
         const activeVerRaw = String(versionSpec).replace(/[^0-9.]/g, '');
         if (!activeVerRaw) return;
 
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 1200);
+
           const response = await fetch('https://api.osv.dev/v1/query', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify({
               package: { name: depName, ecosystem: 'npm' },
               version: activeVerRaw
             })
           });
+          clearTimeout(timeoutId);
 
           if (response.ok) {
             const data = await response.json() as any;
@@ -460,52 +470,95 @@ export async function runScan(
                   counts.high++;
                 }
               }
+              return; // Matched via live database, avoid local check duplicate
             }
           }
         } catch (apiErr) {
-          // Graceful fallback to static validation block on API connectivity issue
-          console.warn(`OSV.dev API connection timed out for ${depName}, using local fallback evaluation.`);
-          const match = DEV_ADVISORIES.find(a => a.name === depName);
-          if (match) {
-            findings.push({
-              id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
-              ruleId: 'OSV-DEPADVISORY',
-              ruleName: `Vulnerable Package Dependency (${depName})`,
-              severity: match.severity,
-              confidence: 'HIGH',
-              score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
-              filePath: pkgFile.path,
-              startLine: 1,
-              snippet: `"${depName}": "${versionSpec}"`,
-              description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
-              remediation: {
-                beforeCode: `"${depName}": "${versionSpec}"`,
-                afterCode: `"${depName}": "^${match.fixed}"`
-              },
-              affectedVersion: String(versionSpec),
-              fixedVersion: match.fixed,
-              dataFlowPath: [
-                {
-                  stepIndex: 1,
-                  nodeLocation: {
-                    filePath: pkgFile.path,
-                    startLine: 1,
-                    endLine: 2,
-                    startColumn: 1,
-                    snippet: `"${depName}": "${versionSpec}"`
-                  },
-                  symbolName: depName,
-                  propagationSnippet: `Installed version: ${versionSpec}`
-                }
-              ]
-            });
+          console.warn(`OSV.dev API trace skipped/timed out for ${depName}, using local signature evaluation.`);
+        }
 
-            counts[match.severity.toLowerCase() as keyof typeof counts]++;
-          }
+        // Fallback to local signature evaluation
+        const match = DEV_ADVISORIES.find(a => a.name === depName);
+        if (match) {
+          findings.push({
+            id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
+            ruleId: 'OSV-DEPADVISORY',
+            ruleName: `Vulnerable Package Dependency (${depName})`,
+            severity: match.severity,
+            confidence: 'HIGH',
+            score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
+            filePath: pkgFile.path,
+            startLine: 1,
+            snippet: `"${depName}": "${versionSpec}"`,
+            description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
+            remediation: {
+              beforeCode: `"${depName}": "${versionSpec}"`,
+              afterCode: `"${depName}": "^${match.fixed}"`
+            },
+            affectedVersion: String(versionSpec),
+            fixedVersion: match.fixed,
+            dataFlowPath: [
+              {
+                stepIndex: 1,
+                nodeLocation: {
+                  filePath: pkgFile.path,
+                  startLine: 1,
+                  endLine: 2,
+                  startColumn: 1,
+                  snippet: `"${depName}": "${versionSpec}"`
+                },
+                symbolName: depName,
+                propagationSnippet: `Installed version: ${versionSpec}`
+              }
+            ]
+          });
+
+          counts[match.severity.toLowerCase() as keyof typeof counts]++;
         }
       });
 
       await Promise.all(depQueries);
+
+      // Evaluate the rest of the dependencies purely using offline high-contrast signatures
+      for (const [depName, versionSpec] of offlineSubset) {
+        const match = DEV_ADVISORIES.find(a => a.name === depName);
+        if (match) {
+          findings.push({
+            id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
+            ruleId: 'OSV-DEPADVISORY',
+            ruleName: `Vulnerable Package Dependency (${depName})`,
+            severity: match.severity,
+            confidence: 'HIGH',
+            score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
+            filePath: pkgFile.path,
+            startLine: 1,
+            snippet: `"${depName}": "${versionSpec}"`,
+            description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
+            remediation: {
+              beforeCode: `"${depName}": "${versionSpec}"`,
+              afterCode: `"${depName}": "^${match.fixed}"`
+            },
+            affectedVersion: String(versionSpec),
+            fixedVersion: match.fixed,
+            dataFlowPath: [
+              {
+                stepIndex: 1,
+                nodeLocation: {
+                  filePath: pkgFile.path,
+                  startLine: 1,
+                  endLine: 2,
+                  startColumn: 1,
+                  snippet: `"${depName}": "${versionSpec}"`
+                },
+                symbolName: depName,
+                propagationSnippet: `Installed version: ${versionSpec}`
+              }
+            ]
+          });
+
+          counts[match.severity.toLowerCase() as keyof typeof counts]++;
+        }
+      }
     } catch (_) {
       // Malformed package.json, skip
     }

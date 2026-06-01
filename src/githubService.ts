@@ -145,13 +145,27 @@ export async function fetchRepositoryFiles(owner: string, name: string, branch: 
       p.includes('vendor/') ||
       p.includes('coverage/') ||
       p.includes('.git/') ||
-      ['.png', '.jpg', '.ico', '.svg', '.woff', '.lock', '.zip'].includes(ext);
+      ['.png', '.jpg', '.ico', '.svg', '.woff', '.woff2', '.lock', '.zip', '.pdf', '.mp3', '.mp4'].includes(ext);
 
-    const maxLimitSize = node.size && Number(node.size) <= 50000;
+    const maxLimitSize = (node.size === undefined || node.size === null || Number(node.size) <= 75000);
     return !shouldSkip && maxLimitSize;
   });
 
-  const sliced = rawEntries.slice(0, 40);
+  // Prioritize and select the top 12 most security-relevant files for high performance and low latency
+  const priorityWeights = (p: string): number => {
+    const fileName = p.toLowerCase();
+    if (fileName === 'package.json') return 100;
+    if (fileName === 'tsconfig.json' || fileName === 'vite.config.ts' || fileName === 'next.config.js') return 90;
+    if (fileName === '.env.example' || fileName === '.env') return 85;
+    if (fileName.includes('firestore.rules') || fileName.includes('supabase.rules') || fileName.includes('schema.sql') || fileName.includes('schema.prisma')) return 80;
+    if (fileName === 'server.ts' || fileName === 'server.js' || fileName === 'app.ts' || fileName === 'app.js' || fileName === 'index.ts' || fileName === 'index.js') return 75;
+    if (fileName.includes('routes/') || fileName.includes('controllers/') || fileName.includes('api/')) return 60;
+    if (fileName.endsWith('.ts') || fileName.endsWith('.tsx') || fileName.endsWith('.js') || fileName.endsWith('.jsx')) return 50;
+    return 10;
+  };
+
+  const sortedFileList = [...rawEntries].sort((a, b) => priorityWeights(b.path) - priorityWeights(a.path));
+  const sliced = sortedFileList.slice(0, 12);
   const filesContents: { path: string; content: string }[] = [];
 
   await Promise.all(

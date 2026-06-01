@@ -23,26 +23,6 @@ export default defineConfig(() => {
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify({ error: err.message || 'Internal Vite API dev-server error.' }));
               }
-            } else if (urlPath === '/api/scan/start') {
-              try {
-                const { default: handler } = await server.ssrLoadModule('./api/scan/start.ts');
-                await handler(req, res);
-              } catch (err: any) {
-                console.error('Error running local Vercel Function API scan start handler in Vite:', err);
-                res.statusCode = 500;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ error: err.message || 'Internal Vite API dev-server error.' }));
-              }
-            } else if (urlPath === '/api/scan/status') {
-              try {
-                const { default: handler } = await server.ssrLoadModule('./api/scan/status.ts');
-                await handler(req, res);
-              } catch (err: any) {
-                console.error('Error running local Vercel Function API scan status handler in Vite:', err);
-                res.statusCode = 500;
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ error: err.message || 'Internal Vite API dev-server error.' }));
-              }
             } else if (urlPath === '/api' || urlPath.startsWith('/api/')) {
               try {
                 const { default: handler } = await server.ssrLoadModule('./api/index.ts');
