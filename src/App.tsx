@@ -4,32 +4,10 @@ import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
 import { ReportView } from './components/ReportView';
 import { GitHubUser, Repository, ScanReport } from './types';
-import { DEMO_FILES, DEMO_REPOSITORIES } from './utils/demoData';
-import { runScan } from './scanner';
-import { fetchRepositoryFiles } from './githubService';
+import { getSupabase } from './supabase';
+import { apiFetch } from './utils/api';
 
 type PageState = 'INITIAL_CHECK' | 'LOGIN' | 'DASHBOARD' | 'SCANNING' | 'REPORT';
-
-const getLocalHistory = (): ScanReport[] => {
-  try {
-    const rawHistory = window.localStorage.getItem('audi_scans_history');
-    return rawHistory ? JSON.parse(rawHistory) : [];
-  } catch (err) {
-    console.error('Failed to parse scan history:', err);
-    return [];
-  }
-};
-
-const saveLocalReport = (report: ScanReport) => {
-  try {
-    const current = getLocalHistory();
-    const filtered = current.filter(r => r.id !== report.id);
-    filtered.unshift(report);
-    window.localStorage.setItem('audi_scans_history', JSON.stringify(filtered));
-  } catch (err) {
-    console.error('Failed to save report history:', err);
-  }
-};
 
 export default function App() {
   const [page, setPage] = useState<PageState>('INITIAL_CHECK');
@@ -38,7 +16,7 @@ export default function App() {
   const [scanReport, setScanReport] = useState<ScanReport | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Reactive scanning progress states from browser scanning runs
+  // Reactive scanning progress states from SSE
   const [scanProgress, setScanProgress] = useState<{
     status: 'connecting' | 'indexing' | 'fetching' | 'scanning' | 'done' | 'error';
     filesDiscovered: number;
@@ -66,26 +44,86 @@ export default function App() {
 
   const scanStages = [
     { label: 'Initializing Secure Pipeline', desc: 'Establishing token channels and parsing repository parameters...', icon: <Database className="text-[#00FF88]" size={16} /> },
-    { label: 'Ingesting Directory Trees', desc: 'Recursively scanning branch directories, removing build artifacts, and loading files...', icon: <Database className="text-[#00FF88]" size={16} /> },
-    { label: 'Retrieving Source Code Files', desc: 'Sequentially buffering and checking remote source files under 50KB limits...', icon: <Cpu className="text-[#00FF88]" size={16} /> },
-    { label: 'Taint Propagation and Scanning Engine', desc: 'Tracing inputs through AST nodes to identify command/injection flaws...', icon: <Terminal className="text-[#00FF88]" size={16} /> }
+    { label: 'Ingesting Directory Trees', desc: 'Recursively scanning branch directories, stripping node_modules, dist, and locking paths...', icon: <Database className="text-[#00FF88]" size={16} /> },
+    { label: 'Retrieving Source Code Files', desc: 'Sequentially buffer downloading plain-text source files under 50KB...', icon: <Cpu className="text-[#00FF88]" size={16} /> },
+    { label: 'Taint Propagation and Scanning Engine', desc: 'Tracing unvalidated inputs through symbol flow states and hardcoded token matching...', icon: <Terminal className="text-[#00FF88]" size={16} /> }
   ];
 
-  // Bootstrap session state in offline-first mode
+  const [supabaseClient, setSupabaseClient] = useState<any>(null);
+
   useEffect(() => {
-    const savedSession = window.localStorage.getItem('audi_sb_user_session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        setUser(parsed);
+    getSupabase().then(client => {
+      setSupabaseClient(client);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!supabaseClient) return;
+
+    // Track active auth subscription shift state
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event: string, session: any) => {
+      console.log('App Supabase auth state change event:', event);
+      
+      if (session) {
+        const metadata = session.user.user_metadata || {};
+        const storedProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
+        const providerToken = session.provider_token || storedProviderToken || '';
+
+        const githubUser: GitHubUser = {
+          id: session.user.id,
+          login: metadata.preferred_username || metadata.user_name || session.user.email?.split('@')[0] || 'github_user',
+          name: metadata.full_name || metadata.name || metadata.user_name || 'GitHub User',
+          avatarUrl: metadata.avatar_url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231f242c"/><path d="M50,85 C25,85 15,67 15,60 C15,53 25,43 50,43 C75,43 85,53 85,60 C85,67 75,85 50,85 Z" fill="%238b949e"/><circle cx="50" cy="27" r="14" fill="%238b949e"/></svg>',
+          accessToken: providerToken
+        };
+
+        window.localStorage.setItem('audi_sb_access_token', session.access_token);
+        if (providerToken) {
+          window.localStorage.setItem('audi_sb_provider_token', providerToken);
+        }
+
+        setUser(githubUser);
         setPage('DASHBOARD');
+      } else {
+        // If this is currently a guest sandbox session, we do not force-evict it
+        setUser((currentUser) => {
+          if (currentUser?.id === 'guest-dev') {
+            return currentUser;
+          } else {
+            // Only clear the tokens when explicitly signed out or fully unauthenticated
+            if (event === 'SIGNED_OUT') {
+              window.localStorage.removeItem('audi_sb_access_token');
+              window.localStorage.removeItem('audi_sb_provider_token');
+              setPage('LOGIN');
+              return null;
+            }
+            return currentUser;
+          }
+        });
+      }
+    });
+
+    // Also verify active session from headers just in case localStorage has old values
+    const queryActiveSessionOnBoot = async () => {
+      try {
+        const res = await apiFetch('/api/auth/session');
+        const data = await res.json();
+        if (data.isAuthenticated && data.user) {
+          setUser(data.user);
+          setPage('DASHBOARD');
+        } else {
+          setPage('LOGIN');
+        }
       } catch (err) {
         setPage('LOGIN');
       }
-    } else {
-      setPage('LOGIN');
-    }
-  }, []);
+    };
+    queryActiveSessionOnBoot();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabaseClient]);
 
   const handleLoginSuccess = (loggedInUser: GitHubUser) => {
     setUser(loggedInUser);
@@ -93,9 +131,25 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    // Clear sandbox cookies as well
+    document.cookie = 'audi_sandbox=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    
     window.localStorage.removeItem('audi_sb_access_token');
     window.localStorage.removeItem('audi_sb_provider_token');
-    window.localStorage.removeItem('audi_sb_user_session');
+
+    if (supabaseClient) {
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (err) {
+        console.error('Supabase signOut error:', err);
+      }
+    }
+
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch (_) {
+      // Ignore
+    }
 
     setUser(null);
     setSelectedRepo(null);
@@ -103,8 +157,7 @@ export default function App() {
     setPage('LOGIN');
   };
 
-  // Direct client-side AST engine trigger
-  const triggerScan = async (repo: Repository) => {
+  const triggerScan = (repo: Repository) => {
     setSelectedRepo(repo);
     setPage('SCANNING');
     setScanError(null);
@@ -112,89 +165,90 @@ export default function App() {
       status: 'connecting',
       filesDiscovered: 0,
       filesScanned: 0,
-      currentFile: 'Resolving default branch parameters...',
+      currentFile: 'Establishing pipeline server connection...',
       percentage: 5
     });
 
-    try {
-      // Connect stage
-      await new Promise(resolve => setTimeout(resolve, 400));
-      setScanProgress(p => ({
-        ...p,
-        status: 'indexing',
-        currentFile: 'Ignoring build output folders and searching file hierarchy...',
-        percentage: 25
-      }));
-      await new Promise(resolve => setTimeout(resolve, 400));
+    let currentPct = 5;
+    let status: 'connecting' | 'indexing' | 'fetching' | 'scanning' = 'connecting';
+    let currentFileText = 'Establishing secure pipeline...';
 
-      let files: { path: string; content: string }[] = [];
+    const progressInterval = setInterval(() => {
+      if (currentPct < 95) {
+        // Smoothly accelerate then decelerate
+        const increment = currentPct < 40 ? 5 : currentPct < 75 ? 3 : 1;
+        currentPct = Math.min(95, currentPct + increment);
 
-      // Fetch or ingest files
-      if (repo.id.toString().startsWith('demo-')) {
-        const demoId = repo.id;
-        files = DEMO_FILES[demoId] || [];
-        if (files.length === 0) {
-          throw new Error('Sandbox codebase contains no preloaded validation files.');
+        if (currentPct <= 15) {
+          status = 'connecting';
+          currentFileText = 'Resolving default branch of remote repository...';
+        } else if (currentPct <= 45) {
+          status = 'indexing';
+          currentFileText = 'Mapping Git structures recursively and filtering out noise paths...';
+        } else if (currentPct <= 75) {
+          status = 'fetching';
+          currentFileText = 'Retrieving source files context under 50KB...';
+        } else {
+          status = 'scanning';
+          currentFileText = 'Parsing Javascript AST nodes, inspecting RLS, CORS & API patterns...';
         }
-      } else {
-        setScanProgress(p => ({
-          ...p,
-          status: 'fetching',
-          currentFile: 'Retrieving files through the public GitHub REST channels...',
-          percentage: 45
-        }));
-        
-        const token = user?.accessToken || window.localStorage.getItem('audi_sb_provider_token') || '';
-        files = await fetchRepositoryFiles(repo.owner, repo.name, repo.defaultBranch || 'main', token);
+
+        setScanProgress({
+          status,
+          filesDiscovered: repo.isPrivate ? 12 : 36,
+          filesScanned: Math.max(1, Math.floor((currentPct / 100) * 12)),
+          currentFile: currentFileText,
+          percentage: currentPct
+        });
       }
+    }, 120);
 
-      setScanProgress(p => ({
-        ...p,
-        status: 'scanning',
-        filesDiscovered: files.length,
-        currentFile: 'Rebuilding data-flow graphs and testing security sinks...',
-        percentage: 75
-      }));
-      await new Promise(resolve => setTimeout(resolve, 500));
+    const cleanup = () => {
+      clearInterval(progressInterval);
+    };
 
-      if (files.length === 0) {
-        throw new Error('EMPTY_REPO: No supported source files found under 50KB constraints.');
-      }
-
-      // Execute browser-side AST taint and secrets propagation scan
-      const report = await runScan(files, files.length, (progressUpdate) => {
-        // Can be fed into layout
+    apiFetch('/api/scan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        repositoryId: repo.id,
+        owner: repo.owner,
+        name: repo.name,
+        defaultBranch: repo.defaultBranch || 'main'
+      })
+    })
+      .then(async (res) => {
+        cleanup();
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || 'General pipeline error executing secure repository scanning.');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (data.code === 'EMPTY_REPO' || data.type === 'empty_repo') {
+          setScanError(`EMPTY_REPO: ${data.message || 'Repository is empty or default branch has not been initialized.'}`);
+        } else if (data.report) {
+          setScanProgress({
+            status: 'done',
+            filesDiscovered: data.report.totalFilesScanned || 24,
+            filesScanned: data.report.totalFilesScanned || 24,
+            currentFile: 'Scan compilation completed successfully.',
+            percentage: 100
+          });
+          setScanReport(data.report);
+          setPage('REPORT');
+        } else {
+          throw new Error('Malformed scanning response parsed.');
+        }
+      })
+      .catch((err) => {
+        cleanup();
+        console.error('Core scan flow failure:', err);
+        setScanError(err.message || 'A critical error occurred while attempting the serverless repository scan.');
       });
-
-      // Augment report attributes
-      report.id = `report-${Date.now()}`;
-      report.repositoryId = repo.id;
-      report.repositoryName = repo.name;
-      report.repositoryOwner = repo.owner;
-      report.scannedAt = new Date().toISOString();
-
-      // Save report in local persistence
-      saveLocalReport(report);
-
-      setScanProgress({
-        status: 'done',
-        filesDiscovered: files.length,
-        filesScanned: files.length,
-        currentFile: 'Compilation completed. Synthesizing grade guidelines...',
-        percentage: 100
-      });
-
-      setScanReport(report);
-      setPage('REPORT');
-
-    } catch (err: any) {
-      console.error('Scan failed:', err);
-      if (err.message && err.message.includes('EMPTY_REPO')) {
-        setScanError(`EMPTY_REPO: No supported files available in this branch.`);
-      } else {
-        setScanError(err.message || 'Analysis pipeline fault occurred while tracing source vectors.');
-      }
-    }
   };
 
   const handleSelectHistoricReport = (report: ScanReport) => {

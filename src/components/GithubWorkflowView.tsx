@@ -19,17 +19,8 @@ import {
   RefreshCw,
   FileCode
 } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 import { SeverityType, ScanReport } from '../types';
-import { 
-  parseGithubUrl, 
-  fetchRepositoryFiles, 
-  analyzePrDiff, 
-  generatePrComment, 
-  generateWorkflowYaml,
-  generateBadgeSvg
-} from '../githubService';
-import { runScan } from '../scanner';
-import { DEMO_REPOSITORIES } from '../utils/demoData';
 
 interface DBRepositoryMetadata {
   id: string; // "owner/name"
@@ -63,15 +54,6 @@ interface PRAnalysisResult {
   markdown: string;
 }
 
-const getLocalHistory = (): ScanReport[] => {
-  try {
-    const rawHistory = window.localStorage.getItem('audi_scans_history');
-    return rawHistory ? JSON.parse(rawHistory) : [];
-  } catch (err) {
-    return [];
-  }
-};
-
 export function GithubWorkflowView() {
   // Imported repositories states
   const [repositories, setRepositories] = useState<DBRepositoryMetadata[]>([]);
@@ -104,65 +86,17 @@ export function GithubWorkflowView() {
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [activePrSubTab, setActivePrSubTab] = useState<'METRICS' | 'MARKDOWN'>('METRICS');
 
-  // Load repositories from local history catalog
+  // Load repositories on mount
   const fetchRepositories = async () => {
     setLoadingRepos(true);
     setReposError(null);
     try {
-      const historyList = getLocalHistory();
-      const savedUserSession = window.localStorage.getItem('audi_sb_user_session');
-      const parsedUser = savedUserSession ? JSON.parse(savedUserSession) : null;
-      const userLogin = parsedUser?.login || 'demo-auditor';
-
-      const rawRepos = window.localStorage.getItem('audi_imported_repositories');
-      let list = rawRepos ? JSON.parse(rawRepos) : [];
-      if (list.length === 0) {
-        list = DEMO_REPOSITORIES.map(r => ({
-          id: r.id,
-          name: r.name,
-          owner: r.owner,
-          defaultBranch: r.defaultBranch || 'main',
-          lastScan: null,
-          latestGrade: null,
-          latestScore: null,
-          historicalTrend: [],
-          userLogin: userLogin
-        }));
-        window.localStorage.setItem('audi_imported_repositories', JSON.stringify(list));
-      }
-
-      // Map dynamic scan grades from matching history database logs
-      const updatedList = list.map((repo: any) => {
-        const repoScans = historyList.filter(h => h.repositoryId === repo.id);
-        if (repoScans.length > 0) {
-          repoScans.sort((a,b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime());
-          const latest = repoScans[0];
-          
-          const gradeFromRep = (score: number) => {
-            if (score >= 90) return 'A';
-            if (score >= 75) return 'B';
-            if (score >= 55) return 'C';
-            return 'F';
-          };
-
-          return {
-            ...repo,
-            lastScan: latest.scannedAt,
-            latestScore: latest.score,
-            latestGrade: gradeFromRep(latest.score),
-            historicalTrend: repoScans.map(s => ({
-              score: s.score,
-              scannedAt: s.scannedAt,
-              grade: gradeFromRep(s.score)
-            }))
-          };
-        }
-        return repo;
-      });
-
-      setRepositories(updatedList);
+      const res = await apiFetch('/api/github/repositories');
+      if (!res.ok) throw new Error('Failed to retrieve GitHub repository list from system logs.');
+      const data = await res.json();
+      setRepositories(data.repositories || []);
     } catch (err: any) {
-      setReposError(err.message || 'Error occurred querying catalog database logs.');
+      setReposError(err.message || 'Error occurred querying API logs.');
     } finally {
       setLoadingRepos(false);
     }
@@ -182,60 +116,29 @@ export function GithubWorkflowView() {
     setImportMessage(null);
 
     try {
-      const parsed = parseGithubUrl(githubUrl.trim());
-      if (!parsed) {
-        throw new Error('Invalid GitHub repository representation format. Enter owner/repository (e.g. facebook/react)');
+      const res = await apiFetch('/api/github/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          githubUrl: githubUrl.trim(),
+          defaultBranch: defaultBranch.trim() || undefined
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Repository validation or network timeout error during recursive tree import.');
       }
 
-      const { owner, name } = parsed;
-      const branch = defaultBranch.trim() || 'main';
-
-      setImportMessage(`🔍 Retrieving file tree structure for branch '${branch}'...`);
-      const savedUserSession = window.localStorage.getItem('audi_sb_user_session');
-      const parsedUser = savedUserSession ? JSON.parse(savedUserSession) : null;
-      const token = parsedUser?.accessToken || window.localStorage.getItem('audi_sb_provider_token') || '';
-
-      const files = await fetchRepositoryFiles(owner, name, branch, token);
-      if (files.length === 0) {
-        throw new Error(`The branch '${branch}' contains no valid source files.`);
+      if (data.code === 'EMPTY_REPO') {
+        throw new Error(`Repository error: ${data.message || 'Repository is empty or branch has not been initialized.'} (Branch: ${data.branch})`);
       }
 
-      setImportMessage(`⚡ Tree received. Compiling AST and running taint scan...`);
-      const report = await runScan(files, files.length, () => {});
-      report.id = `report-${Date.now()}`;
-      report.repositoryId = `${owner}/${name}`;
-      report.repositoryName = name;
-      report.repositoryOwner = owner;
-      report.scannedAt = new Date().toISOString();
-
-      // Save report in history
-      const currentHistory = getLocalHistory();
-      currentHistory.unshift(report);
-      window.localStorage.setItem('audi_scans_history', JSON.stringify(currentHistory));
-
-      // Import database reference metadata
-      const newRepo: DBRepositoryMetadata = {
-        id: `${owner}/${name}`,
-        name,
-        owner,
-        defaultBranch: branch,
-        lastScan: report.scannedAt,
-        latestScore: report.score,
-        latestGrade: report.score >= 90 ? 'A' : report.score >= 75 ? 'B' : report.score >= 55 ? 'C' : 'F',
-        historicalTrend: [{ score: report.score, scannedAt: report.scannedAt, grade: 'A' }],
-        userLogin: parsedUser?.login || 'demo-auditor'
-      };
-
-      const currentRepos = JSON.parse(window.localStorage.getItem('audi_imported_repositories') || '[]');
-      const filteredRepos = currentRepos.filter((r: any) => r.id !== newRepo.id);
-      filteredRepos.unshift(newRepo);
-      window.localStorage.setItem('audi_imported_repositories', JSON.stringify(filteredRepos));
-
-      setImportMessage(`🎉 Successfully ingested, scanned, and cataloged repository ${newRepo.id}.`);
+      setImportMessage(`🎉 Successfully ingested, scanned, and cataloged repository ${data.repository.id}.`);
       setGithubUrl('');
       setDefaultBranch('');
       await fetchRepositories();
-      setSelectedRepo(newRepo);
+      setSelectedRepo(data.repository);
     } catch (err: any) {
       setImportError(err.message || 'System error during background git parsing.');
     } finally {
@@ -247,14 +150,21 @@ export function GithubWorkflowView() {
   useEffect(() => {
     if (!selectedRepo) return;
     setLoadingWorkflow(true);
-    try {
-      const yaml = generateWorkflowYaml({ failOnCritical, failBelowScore, warningOnly });
-      setWorkflowYaml(yaml);
-    } catch (err) {
-      console.error('Workflow config failed', err);
-    } finally {
-      setLoadingWorkflow(false);
-    }
+    apiFetch('/api/github/workflow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ failOnCritical, failBelowScore, warningOnly })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setWorkflowYaml(data.yaml);
+      })
+      .catch(err => {
+        console.error('Workflow config failed', err);
+      })
+      .finally(() => {
+        setLoadingWorkflow(false);
+      });
   }, [selectedRepo, failOnCritical, failBelowScore, warningOnly]);
 
   // Handle comparative PR analysis
@@ -270,164 +180,27 @@ export function GithubWorkflowView() {
     setPrResult(null);
 
     try {
-      const parsed = parseGithubUrl(prUrl.trim());
-      if (!parsed) {
-        throw new Error('Invalid GitHub repository format. Must match owner/repository.');
-      }
-      const { owner, name } = parsed;
-      const num = parseInt(prNumber.trim(), 10);
-      if (isNaN(num)) {
-        throw new Error('Invalid pull request representation number.');
-      }
-
-      const savedUserSession = window.localStorage.getItem('audi_sb_user_session');
-      const parsedUser = savedUserSession ? JSON.parse(savedUserSession) : null;
-      const isSandboxUser = parsedUser?.id === 'guest-dev' || parsedUser?.isSandbox;
-      const token = parsedUser?.accessToken || window.localStorage.getItem('audi_sb_provider_token') || '';
-
-      // Check if sandbox demo PR or real PR requested
-      if (isSandboxUser || prUrl.toLowerCase().includes('demo') || owner === 'demo' || owner === 'demo-vulnerable') {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const mockBase: ScanReport = {
-          id: 'base-rep',
-          repositoryId: 'demo-vulnerabilities',
-          repositoryName: 'vulnerable-secrets-demo',
-          repositoryOwner: 'demo-vulnerable',
-          score: 60,
-          timeElapsedMs: 120,
-          totalFilesScanned: 5,
-          counts: {
-            critical: 1,
-            high: 0,
-            medium: 0,
-            low: 0
-          },
-          findings: [
-            {
-              id: 'find-1',
-              ruleId: 'hardcoded-jwt-token',
-              ruleName: 'Hardcoded JWT Secret',
-              filePath: 'src/config.ts',
-              startLine: 12,
-              snippet: "const JWT_SECRET = 'supersecret_value_1234';",
-              severity: 'CRITICAL',
-              confidence: 'HIGH',
-              score: 95,
-              description: 'Found hardcoded JWT Signing token secret.',
-              remediation: {
-                beforeCode: "const JWT_SECRET = 'supersecret_value_1234';",
-                afterCode: "const JWT_SECRET = process.env.JWT_SECRET;"
-              },
-              dataFlowPath: []
-            }
-          ],
-          attackChains: [
-            { 
-              id: '1', 
-              name: 'Leaked Config Key can read db', 
-              severity: 'CRITICAL', 
-              findingsUsed: [],
-              businessImpact: 'Exposes authorization keys to malicious users',
-              exploitationDifficulty: 'EASY',
-              description: 'Attackers can sign forge JWT administrative sessions'
-            }
-          ],
-          scannedAt: new Date().toISOString()
-        };
-
-        const mockPr: ScanReport = {
-          id: 'pr-rep',
-          repositoryId: 'demo-vulnerabilities',
-          repositoryName: 'vulnerable-secrets-demo',
-          repositoryOwner: 'demo-vulnerable',
-          score: 92,
-          timeElapsedMs: 110,
-          totalFilesScanned: 5,
-          counts: {
-            critical: 0,
-            high: 0,
-            medium: 0,
-            low: 0
-          },
-          findings: [],
-          attackChains: [],
-          scannedAt: new Date().toISOString()
-        };
-
-        const diff = analyzePrDiff(mockBase, mockPr);
-        const mdComment = generatePrComment(owner, name, num, diff);
-
-        setPrResult({
-          success: true,
-          repository: `${owner}/${name}`,
-          prNumber: num,
-          sourceBranch: 'remediation-patch-1',
-          targetSha: 'b4bc15d78a94',
-          baseReport: mockBase,
-          prReport: mockPr,
-          comparison: {
-            baseScore: diff.baseScore,
-            prScore: diff.prScore,
-            scoreDelta: diff.scoreDelta,
-            newFindings: diff.newFindings,
-            resolvedFindings: diff.resolvedFindings,
-            attackChainsIntroduced: diff.attackChainsIntroduced,
-            attackChainsRemoved: diff.attackChainsRemoved
-          },
-          markdown: mdComment
-        });
-        return;
-      }
-
-      // Execute live remote branch comparisons using GitHub API
-      const prDetailsRes = await fetch(`https://api.github.com/repos/${owner}/${name}/pulls/${num}`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-      });
-      if (!prDetailsRes.ok) {
-        throw new Error(`Failed to retrieve GitHub pull request details (Status: ${prDetailsRes.status}).`);
-      }
-      const prInfo = await prDetailsRes.json();
-      const baseBranch = prInfo.base?.ref || 'main';
-      const headBranch = prInfo.head?.ref;
-      const headSha = prInfo.head?.sha;
-
-      if (!headBranch || !headSha) {
-        throw new Error('Could not find pull request branch boundaries.');
-      }
-
-      const baseFiles = await fetchRepositoryFiles(owner, name, baseBranch, token);
-      const baseReport = await runScan(baseFiles, baseFiles.length, () => {});
-
-      const headFiles = await fetchRepositoryFiles(owner, name, headSha, token);
-      const prReport = await runScan(headFiles, headFiles.length, () => {});
-
-      const diff = analyzePrDiff(baseReport, prReport);
-      const commentString = generatePrComment(owner, name, num, diff);
-
-      setPrResult({
-        success: true,
-        repository: `${owner}/${name}`,
-        prNumber: num,
-        sourceBranch: headBranch,
-        targetSha: headSha,
-        baseReport,
-        prReport,
-        comparison: {
-          baseScore: diff.baseScore,
-          prScore: diff.prScore,
-          scoreDelta: diff.scoreDelta,
-          newFindings: diff.newFindings,
-          resolvedFindings: diff.resolvedFindings,
-          attackChainsIntroduced: diff.attackChainsIntroduced,
-          attackChainsRemoved: diff.attackChainsRemoved
-        },
-        markdown: commentString
+      const res = await apiFetch('/api/github/pr-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          githubUrl: prUrl.trim(),
+          prNumber: prNumber.trim()
+        })
       });
 
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'An error occurred during PR scanning comparison.');
+      }
+
+      if (data.code === 'EMPTY_REPO') {
+        throw new Error(`Repository error: ${data.message || 'Repository is empty or branch has not been initialized.'} (Branch: ${data.branch})`);
+      }
+
+      setPrResult(data);
     } catch (err: any) {
-      console.error('PR comparative scan fault:', err);
-      setPrError(err.message || 'Workflow target fetch timeout. Try again with verified tokens.');
+      setPrError(err.message || 'Endpoint connection or validation error occurred.');
     } finally {
       setAnalyzingPr(false);
     }
@@ -653,7 +426,7 @@ export function GithubWorkflowView() {
             <div className="flex items-center gap-3">
               <span className="font-sans text-xs text-[#8B949E]">Dynamic badge:</span>
               <img 
-                src={`data:image/svg+xml;utf8,${encodeURIComponent(generateBadgeSvg(selectedRepo.latestScore || 100))}`} 
+                src={`/api/github/badge/${selectedRepo.owner}/${selectedRepo.name}?t=${Date.now()}`} 
                 alt="Security Status Badge" 
                 className="h-5"
                 referrerPolicy="no-referrer"

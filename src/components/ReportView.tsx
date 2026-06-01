@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw, ShieldAlert, Sparkles, Code, FileText, ChevronDow
 import { ScanReport, VulnerabilityInstance, SeverityType } from '../types';
 import { TimelineTabView } from './TimelineTabView';
 import { ComplianceTabView } from './ComplianceTabView';
+import { apiFetch } from '../utils/api';
 
 const computeTimelineMetrics = (reports: ScanReport[]) => {
   if (reports.length === 0) {
@@ -143,11 +144,13 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
     const fetchHistory = async () => {
       setLoadingHistory(true);
       try {
-        const rawHistory = window.localStorage.getItem('audi_scans_history');
-        const list = rawHistory ? JSON.parse(rawHistory) : [];
-        setHistory(list);
+        const response = await apiFetch('/api/scans');
+        const data = await response.json();
+        if (response.ok && data.reports) {
+          setHistory(data.reports);
+        }
       } catch (err) {
-        console.error('Failed to load historical database reports from local storage:', err);
+        console.error('Failed to load historical database reports:', err);
       } finally {
         setLoadingHistory(false);
       }

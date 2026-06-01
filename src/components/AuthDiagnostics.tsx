@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Key, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle, User, Shield } from 'lucide-react';
 import { getSupabase } from '../supabase';
+import { apiFetch } from '../utils/api';
 
 interface DiagnosticData {
   supabase: {
@@ -66,31 +67,12 @@ export function AuthDiagnostics() {
         }
       }
 
-      // 2. Client-side state visualization
-      const hasSupabaseUrl = !!import.meta.env.VITE_SUPABASE_URL;
-      const hasSupabaseKey = !!import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-      const payload: DiagnosticData = {
-        supabase: {
-          urlConfigured: hasSupabaseUrl || true,
-          anonKeyConfigured: hasSupabaseKey || true,
-          databaseUrlConfigured: false,
-          initialized: true,
-          liveConnected: true,
-          connectionError: null,
-          tableVerified: true
-        },
-        session: {
-          isAuthenticated: !!clientUserId || true,
-          activeUser: clientGithubUsername ? {
-            id: clientUserId || 'guest-dev',
-            login: clientGithubUsername,
-            avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231f242c"/><path d="M50,85 C25,85 15,67 15,60 C15,53 25,43 50,43 C75,43 85,53 85,60 C85,67 75,85 50,85 Z" fill="%238b949e"/><circle cx="50" cy="27" r="14" fill="%238b949e"/></svg>'
-          } : null
-        },
-        missingEnvVars: []
-      };
-      
+      // 2. Fetch server-side status (apiFetch automatically applies token headers)
+      const res = await apiFetch('/api/auth/diagnostics');
+      if (!res.ok) {
+        throw new Error('Failed to retrieve system diagnostics payload.');
+      }
+      const payload = await res.json();
       setData(payload);
     } catch (err: any) {
       setError(err.message || 'Connecting to diagnostics server endpoints failed.');
