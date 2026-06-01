@@ -229,17 +229,25 @@ export default function App() {
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
           <div 
             onClick={() => { if (user) setPage('DASHBOARD'); }}
-            className="flex items-center gap-2.5 cursor-pointer selection:bg-transparent"
+            className="flex items-center gap-3 cursor-pointer selection:bg-transparent"
           >
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#00FF88] to-[#00E575] flex items-center justify-center text-black shadow-[0_0_20px_rgba(0,255,136,0.2)]">
-              <svg viewBox="0 0 16 16" fill="none" className="w-[18px] h-[18px] stroke-black" strokeWidth={2.5}>
-                <path d="M8 2L14 5V11L8 14L2 11V5L8 2Z" strokeLinejoin="round" />
-                <path d="M8 6V10M6 8H10" strokeLinecap="round" />
-              </svg>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00FF88] via-[#00F0FF] to-[#00E575] p-[1.5px] shadow-[0_0_20px_rgba(0,255,136,0.22)] flex items-center justify-center transition-all duration-300 hover:scale-105">
+              <div className="w-full h-full bg-[#05070a]/90 rounded-[10px] flex items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" className="w-[20px] h-[20px]" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="#00FF88" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 2v20" stroke="#00F0FF" strokeLinecap="round" />
+                  <circle cx="12" cy="12" r="3" fill="#00FF88" className="animate-pulse" />
+                </svg>
+              </div>
             </div>
-            <span className="font-orbitron font-bold text-lg text-white tracking-[0.04em]">
-              Audi<span className="text-[#00FF88]">Code</span>
-            </span>
+            <div className="flex flex-col justify-center">
+              <span className="font-orbitron font-extrabold text-xl md:text-2xl text-white tracking-[0.02em] leading-none">
+                Audi<span className="text-[#00FF88]">Code</span>
+              </span>
+              <span className="hidden sm:block font-mono text-[7.5px] text-[#8B949E] uppercase tracking-wider font-semibold mt-1">
+                Your vibe code Auditor
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04]">

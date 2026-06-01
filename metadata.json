@@ -1,5 +1,5 @@
 {
-  "name": "AudiCode",
+  "name": "AudiCode - Your vibe code Auditor",
   "description": "High-performance deterministic security scanner for GitHub repositories with semantic taint tracking.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
