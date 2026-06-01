@@ -170,7 +170,10 @@ export default function App() {
     const sbAccessToken = window.localStorage.getItem('audi_sb_access_token') || '';
     const sbProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
     const url = `/api/scan/stream?repositoryId=${encRepoId}&owner=${encOwner}&name=${encName}&defaultBranch=${encBranch}&sb_access_token=${encodeURIComponent(sbAccessToken)}&sb_provider_token=${encodeURIComponent(sbProviderToken)}`;
-    const eventSource = new EventSource(url);
+    
+    const baseUrl = import.meta.env.VITE_API_URL || '';
+    const streamUrl = (url.startsWith('/') && baseUrl) ? `${baseUrl}${url}` : url;
+    const eventSource = new EventSource(streamUrl);
 
     eventSource.onmessage = (event) => {
       try {

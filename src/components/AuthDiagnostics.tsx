@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Key, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle, User, Shield } from 'lucide-react';
 import { getSupabase } from '../supabase';
+import { apiFetch } from '../utils/api';
 
 interface DiagnosticData {
   supabase: {
@@ -66,15 +67,8 @@ export function AuthDiagnostics() {
         }
       }
 
-      // 2. Fetch server-side status
-      const sbAccessToken = window.localStorage.getItem('audi_sb_access_token') || '';
-      const sbProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
-      
-      const headers: Record<string, string> = {};
-      if (sbAccessToken) headers['Authorization'] = `Bearer ${sbAccessToken}`;
-      if (sbProviderToken) headers['x-provider-token'] = sbProviderToken;
-
-      const res = await fetch('/api/auth/diagnostics', { headers });
+      // 2. Fetch server-side status (apiFetch automatically applies token headers)
+      const res = await apiFetch('/api/auth/diagnostics');
       if (!res.ok) {
         throw new Error('Failed to retrieve system diagnostics payload.');
       }

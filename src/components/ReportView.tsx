@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw, ShieldAlert, Sparkles, Code, FileText, ChevronDow
 import { ScanReport, VulnerabilityInstance, SeverityType } from '../types';
 import { TimelineTabView } from './TimelineTabView';
 import { ComplianceTabView } from './ComplianceTabView';
+import { apiFetch } from '../utils/api';
 
 const computeTimelineMetrics = (reports: ScanReport[]) => {
   if (reports.length === 0) {
@@ -143,7 +144,7 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
     const fetchHistory = async () => {
       setLoadingHistory(true);
       try {
-        const response = await fetch('/api/scans');
+        const response = await apiFetch('/api/scans');
         const data = await response.json();
         if (response.ok && data.reports) {
           setHistory(data.reports);

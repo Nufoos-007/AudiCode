@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Github, Zap, Terminal } from 'lucide-react';
 import { getSupabase } from '../supabase';
+import { apiFetch } from '../utils/api';
 
 interface LoginViewProps {
   onLoginSuccess: (user: any) => void;
@@ -13,22 +14,43 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [missingVars, setMissingVars] = useState<string[]>([]);
 
   useEffect(() => {
-    // Fetch live configurations and missing environment variable checklists
-    fetch('/api/auth/diagnostics')
-      .then(res => res.json())
+    // Check if client-side compiled environment variables exist first (perfect for serverless Vercel deployments)
+    const viteUrl = import.meta.env.VITE_SUPABASE_URL;
+    const viteKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    if (viteUrl && viteKey) {
+      setHasConfig(true);
+      setMissingVars([]);
+      return;
+    }
+
+    // Fetch live configurations and missing environment variable checklists from backend
+    apiFetch('/api/auth/diagnostics')
+      .then(res => {
+        if (!res.ok) throw new Error('Diagnostics offset');
+        return res.json();
+      })
       .then(data => {
         setHasConfig(data.supabase.urlConfigured && data.supabase.anonKeyConfigured);
         setMissingVars(data.missingEnvVars || []);
       })
       .catch(err => {
-        console.error('Error reading backend diagnostics parameters:', err);
+        console.warn('Backend diagnostics not accessible, falling back to config endpoint:', err);
         // Fallback to legacy config if diagnostics endpoint fails (failsafe)
-        fetch('/api/config')
-          .then(res => res.json())
+        apiFetch('/api/config')
+          .then(res => {
+            if (!res.ok) throw new Error('Config offset');
+            return res.json();
+          })
           .then(data1 => {
             setHasConfig(!!(data1.supabaseUrl && data1.supabaseAnonKey));
+            setMissingVars([]);
           })
-          .catch(e => console.error(e));
+          .catch(e => {
+            console.error('Static hosting fallback activated: both config endpoints failed. Please configure client-side env settings.', e);
+            setHasConfig(false);
+            setMissingVars(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']);
+          });
       });
   }, []);
 
@@ -55,7 +77,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/sandbox', { method: 'POST' });
+      const res = await apiFetch('/api/auth/sandbox', { method: 'POST' });
       if (!res.ok) throw new Error('Enabling sandbox demo environment failed.');
       const data = await res.json();
       window.localStorage.setItem('audi_sb_access_token', 'demo_token_sandbox_bypass_true');

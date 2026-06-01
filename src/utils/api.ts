@@ -15,7 +15,10 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     headers.set('x-provider-token', sbProviderToken);
   }
 
-  return fetch(url, {
+  const baseUrl = import.meta.env.VITE_API_URL || '';
+  const targetUrl = (url.startsWith('/') && baseUrl) ? `${baseUrl}${url}` : url;
+
+  return fetch(targetUrl, {
     ...options,
     headers
   });
