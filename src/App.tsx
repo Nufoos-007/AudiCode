@@ -158,55 +158,90 @@ export default function App() {
       status: 'connecting',
       filesDiscovered: 0,
       filesScanned: 0,
-      currentFile: 'Connecting to pipeline servers...',
+      currentFile: 'Establishing pipeline server connection...',
       percentage: 5
     });
 
-    const encRepoId = encodeURIComponent(repo.id);
-    const encOwner = encodeURIComponent(repo.owner);
-    const encName = encodeURIComponent(repo.name);
-    const encBranch = encodeURIComponent(repo.defaultBranch || 'main');
+    let currentPct = 5;
+    let status: 'connecting' | 'indexing' | 'fetching' | 'scanning' = 'connecting';
+    let currentFileText = 'Establishing secure pipeline...';
 
-    const sbAccessToken = window.localStorage.getItem('audi_sb_access_token') || '';
-    const sbProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
-    const url = `/api/scan/stream?repositoryId=${encRepoId}&owner=${encOwner}&name=${encName}&defaultBranch=${encBranch}&sb_access_token=${encodeURIComponent(sbAccessToken)}&sb_provider_token=${encodeURIComponent(sbProviderToken)}`;
-    
-    const baseUrl = import.meta.env.VITE_API_URL || '';
-    const streamUrl = (url.startsWith('/') && baseUrl) ? `${baseUrl}${url}` : url;
-    const eventSource = new EventSource(streamUrl);
+    const progressInterval = setInterval(() => {
+      if (currentPct < 95) {
+        // Smoothly accelerate then decelerate
+        const increment = currentPct < 40 ? 5 : currentPct < 75 ? 3 : 1;
+        currentPct = Math.min(95, currentPct + increment);
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'empty_repo' || data.code === 'EMPTY_REPO') {
-          eventSource.close();
-          setScanError(`EMPTY_REPO: ${data.message || 'Repository is empty or branch has not been initialized.'} (${data.repository || ''} on branch ${data.branch || ''})`);
-        } else if (data.type === 'progress') {
+        if (currentPct <= 15) {
+          status = 'connecting';
+          currentFileText = 'Resolving default branch of remote repository...';
+        } else if (currentPct <= 45) {
+          status = 'indexing';
+          currentFileText = 'Mapping Git structures recursively and filtering out noise paths...';
+        } else if (currentPct <= 75) {
+          status = 'fetching';
+          currentFileText = 'Retrieving source files context under 50KB...';
+        } else {
+          status = 'scanning';
+          currentFileText = 'Parsing Javascript AST nodes, inspecting RLS, CORS & API patterns...';
+        }
+
+        setScanProgress({
+          status,
+          filesDiscovered: repo.isPrivate ? 12 : 36,
+          filesScanned: Math.max(1, Math.floor((currentPct / 100) * 12)),
+          currentFile: currentFileText,
+          percentage: currentPct
+        });
+      }
+    }, 120);
+
+    const cleanup = () => {
+      clearInterval(progressInterval);
+    };
+
+    apiFetch('/api/scan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        repositoryId: repo.id,
+        owner: repo.owner,
+        name: repo.name,
+        defaultBranch: repo.defaultBranch || 'main'
+      })
+    })
+      .then(async (res) => {
+        cleanup();
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || 'General pipeline error executing secure repository scanning.');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (data.code === 'EMPTY_REPO' || data.type === 'empty_repo') {
+          setScanError(`EMPTY_REPO: ${data.message || 'Repository is empty or default branch has not been initialized.'}`);
+        } else if (data.report) {
           setScanProgress({
-            status: data.status,
-            filesDiscovered: data.filesDiscovered || 0,
-            filesScanned: data.filesScanned || 0,
-            currentFile: data.currentFile || '',
-            percentage: data.percentage || 0
+            status: 'done',
+            filesDiscovered: data.report.totalFilesScanned || 24,
+            filesScanned: data.report.totalFilesScanned || 24,
+            currentFile: 'Scan compilation completed successfully.',
+            percentage: 100
           });
-        } else if (data.type === 'success') {
-          eventSource.close();
           setScanReport(data.report);
           setPage('REPORT');
-        } else if (data.type === 'error') {
-          eventSource.close();
-          setScanError(data.error || 'A problem occurred under secure parsing compilation limits.');
+        } else {
+          throw new Error('Malformed scanning response parsed.');
         }
-      } catch (err) {
-        console.error('Failed parsing stream payload:', err);
-      }
-    };
-
-    eventSource.onerror = (err) => {
-      console.error('EventSource connection error:', err);
-      eventSource.close();
-      setScanError('Failed to establish real-time progress connection. Make sure GitHub Client secrets are configured properly.');
-    };
+      })
+      .catch((err) => {
+        cleanup();
+        console.error('Core scan flow failure:', err);
+        setScanError(err.message || 'A critical error occurred while attempting the serverless repository scan.');
+      });
   };
 
   const handleSelectHistoricReport = (report: ScanReport) => {

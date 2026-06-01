@@ -31,8 +31,11 @@ export function DashboardView({ user, onLogout, onSelectRepo, onSelectHistoricRe
     setLoading(true);
     setError(null);
     apiFetch('/api/repos')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to load user repositories from active sessions.');
+      .then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || 'Failed to load user repositories from active sessions.');
+        }
         return res.json();
       })
       .then(data => {
