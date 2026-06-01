@@ -798,7 +798,11 @@ export default async function handler(req: any, res: any) {
       res.status(200).json({ repositories });
     } catch (error: any) {
       console.error('Error fetching repositories list from Github:', error);
-      res.status(500).json({ error: 'Could not fetch repositories from GitHub: ' + error.message });
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      });
     }
     return;
   }
