@@ -66,17 +66,20 @@ export default function App() {
       
       if (session) {
         const metadata = session.user.user_metadata || {};
+        const storedProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
+        const providerToken = session.provider_token || storedProviderToken || '';
+
         const githubUser: GitHubUser = {
           id: session.user.id,
           login: metadata.preferred_username || metadata.user_name || session.user.email?.split('@')[0] || 'github_user',
           name: metadata.full_name || metadata.name || metadata.user_name || 'GitHub User',
           avatarUrl: metadata.avatar_url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231f242c"/><path d="M50,85 C25,85 15,67 15,60 C15,53 25,43 50,43 C75,43 85,53 85,60 C85,67 75,85 50,85 Z" fill="%238b949e"/><circle cx="50" cy="27" r="14" fill="%238b949e"/></svg>',
-          accessToken: session.provider_token || ''
+          accessToken: providerToken
         };
 
         window.localStorage.setItem('audi_sb_access_token', session.access_token);
-        if (session.provider_token) {
-          window.localStorage.setItem('audi_sb_provider_token', session.provider_token);
+        if (providerToken) {
+          window.localStorage.setItem('audi_sb_provider_token', providerToken);
         }
 
         setUser(githubUser);
@@ -87,10 +90,14 @@ export default function App() {
           if (currentUser?.id === 'guest-dev') {
             return currentUser;
           } else {
-            window.localStorage.removeItem('audi_sb_access_token');
-            window.localStorage.removeItem('audi_sb_provider_token');
-            setPage('LOGIN');
-            return null;
+            // Only clear the tokens when explicitly signed out or fully unauthenticated
+            if (event === 'SIGNED_OUT') {
+              window.localStorage.removeItem('audi_sb_access_token');
+              window.localStorage.removeItem('audi_sb_provider_token');
+              setPage('LOGIN');
+              return null;
+            }
+            return currentUser;
           }
         });
       }

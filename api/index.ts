@@ -239,7 +239,12 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
       return null;
     }
 
-    const providerToken = req.headers['x-provider-token'] as string || querySbProviderToken || '';
+    const headerToken = req.headers['x-provider-token'] as string || '';
+    const providerToken = headerToken || querySbProviderToken || '';
+    console.log('[DIAGNOSTIC] getAuthenticatedUser: req.headers["x-provider-token"] exists:', !!headerToken, 'length:', headerToken.length);
+    console.log('[DIAGNOSTIC] getAuthenticatedUser: querySbProviderToken exists:', !!querySbProviderToken, 'length:', querySbProviderToken?.length || 0);
+    console.log('[DIAGNOSTIC] getAuthenticatedUser: final returned providerToken exists:', !!providerToken, 'length:', providerToken.length);
+
     const metadata = user.user_metadata || {};
 
     return {
@@ -720,22 +725,66 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
+      console.log({
+        hasProviderToken: !!user.accessToken,
+        hasGithubPAT: !!process.env.GITHUB_PAT,
+        selectedAuthSource: user.accessToken ? 'session_provider_token' : (process.env.GITHUB_PAT ? 'GITHUB_PAT' : 'none')
+      });
       const rawToken = decryptToken(user.accessToken) || process.env.GITHUB_PAT || '';
       if (!rawToken) {
         throw new Error('Access token is missing. Please sign in again, or configure GITHUB_PAT on Vercel to allow listing repositories.');
       }
-      const reposResponse = await fetch('https://api.github.com/user/repos?per_page=100&sort=pushed', {
+      const targetUrl = 'https://api.github.com/user/repos?per_page=100&sort=pushed';
+      console.log('[GITHUB FETCH DIAGNOSTIC] Target URL:', targetUrl);
+      const reposResponse = await fetch(targetUrl, {
         headers: {
           'Authorization': `Bearer ${rawToken}`,
           'User-Agent': 'AudiCode-Scanner'
         }
       });
 
-      if (!reposResponse.ok) {
-        throw new Error(`GitHub API error: ${reposResponse.status} ${reposResponse.statusText}`);
+      console.log('[GITHUB FETCH DIAGNOSTIC] Response Status:', reposResponse.status);
+      console.log('[GITHUB FETCH DIAGNOSTIC] Response StatusText:', reposResponse.statusText);
+      console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Limit:', reposResponse.headers.get('x-ratelimit-limit'));
+      console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Remaining:', reposResponse.headers.get('x-ratelimit-remaining'));
+      console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Reset:', reposResponse.headers.get('x-ratelimit-reset'));
+      console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Used:', reposResponse.headers.get('x-ratelimit-used'));
+      console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Resource:', reposResponse.headers.get('x-ratelimit-resource'));
+
+      const responseText = await reposResponse.text();
+      console.log('[GITHUB FETCH DIAGNOSTIC] Response Body (First 500 chars):', responseText.substring(0, 500));
+
+      let bodyType = 'unknown';
+      let errorDetails = '';
+      if (!responseText.trim()) {
+        bodyType = 'empty response';
+      } else if (responseText.trim().startsWith('<')) {
+        bodyType = 'HTML error page';
+      } else {
+        try {
+          const parsed = JSON.parse(responseText);
+          if (Array.isArray(parsed)) {
+            bodyType = 'repository array';
+          } else if (parsed && (parsed.message || parsed.error || parsed.errors)) {
+            bodyType = 'GitHub error object';
+            errorDetails = JSON.stringify(parsed);
+          } else {
+            bodyType = 'JSON object (non-array)';
+          }
+        } catch (e: any) {
+          bodyType = 'invalid JSON text';
+        }
+      }
+      console.log('[GITHUB FETCH DIAGNOSTIC] Evaluated Body Type:', bodyType);
+      if (errorDetails) {
+        console.log('[GITHUB FETCH DIAGNOSTIC] Error Details:', errorDetails);
       }
 
-      const ghRepos = await reposResponse.json() as any[];
+      if (!reposResponse.ok) {
+        throw new Error(`GitHub API error: ${reposResponse.status} ${reposResponse.statusText}. Details: ${responseText.substring(0, 200)}`);
+      }
+
+      const ghRepos = JSON.parse(responseText) as any[];
       const repositories: Repository[] = ghRepos.map(r => ({
         id: String(r.id),
         name: r.name,
