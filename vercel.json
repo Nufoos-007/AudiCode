@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "rewrites": [
-    { "source": "/api/repos", "destination": "/api/repos.ts" },
-    { "source": "/api/(.*)", "destination": "/api/index.ts" }
-  ]
-}

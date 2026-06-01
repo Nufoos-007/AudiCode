@@ -1,89 +1,84 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Github, Zap, Terminal } from 'lucide-react';
+import { Shield, Github, Zap, Terminal, Key } from 'lucide-react';
 import { getSupabase } from '../supabase';
-import { apiFetch } from '../utils/api';
 
 interface LoginViewProps {
   onLoginSuccess: (user: any) => void;
 }
 
 export function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const [hasConfig, setHasConfig] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [missingVars, setMissingVars] = useState<string[]>([]);
-
-  useEffect(() => {
-    // Check if client-side compiled environment variables exist first (perfect for serverless Vercel deployments)
-    const viteUrl = import.meta.env.VITE_SUPABASE_URL;
-    const viteKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-    if (viteUrl && viteKey) {
-      setHasConfig(true);
-      setMissingVars([]);
-      return;
-    }
-
-    // Fetch live configurations and missing environment variable checklists from backend
-    apiFetch('/api/auth/diagnostics')
-      .then(res => {
-        if (!res.ok) throw new Error('Diagnostics offset');
-        return res.json();
-      })
-      .then(data => {
-        setHasConfig(data.supabase.urlConfigured && data.supabase.anonKeyConfigured);
-        setMissingVars(data.missingEnvVars || []);
-      })
-      .catch(err => {
-        console.warn('Backend diagnostics not accessible, falling back to config endpoint:', err);
-        // Fallback to legacy config if diagnostics endpoint fails (failsafe)
-        apiFetch('/api/config')
-          .then(res => {
-            if (!res.ok) throw new Error('Config offset');
-            return res.json();
-          })
-          .then(data1 => {
-            setHasConfig(!!(data1.supabaseUrl && data1.supabaseAnonKey));
-            setMissingVars([]);
-          })
-          .catch(e => {
-            console.error('Static hosting fallback activated: both config endpoints failed. Please configure client-side env settings.', e);
-            setHasConfig(false);
-            setMissingVars(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']);
-          });
-      });
-  }, []);
-
-  const handleGitHubConnect = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const supabase = await getSupabase();
-      const { error: err } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
-        options: {
-          redirectTo: window.location.origin,
-          scopes: 'repo read:user'
-        }
-      });
-      if (err) throw err;
-    } catch (err: any) {
-      setError(err.message || 'Connecting with GitHub failed.');
-      setLoading(false);
-    }
-  };
+  const [githubPat, setGithubPat] = useState<string>('');
+  const [showPatInput, setShowPatInput] = useState<boolean>(false);
 
   const handleSandboxLogin = async () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await apiFetch('/api/auth/sandbox', { method: 'POST' });
-      if (!res.ok) throw new Error('Enabling sandbox demo environment failed.');
-      const data = await res.json();
+      const sandboxUser = {
+        id: 'guest-dev',
+        login: 'demo-auditor',
+        name: 'Sandbox Auditor',
+        avatarUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231f242c"/><path d="M50,85 C25,85 15,67 15,60 C15,53 25,43 50,43 C75,43 85,53 85,60 C85,67 75,85 50,85 Z" fill="%238b949e"/><circle cx="50" cy="27" r="14" fill="%238b949e"/></svg>',
+        accessToken: 'demo_token_sandbox_bypass_true',
+        isSandbox: true
+      };
+      
+      // Store session details in localStorage
       window.localStorage.setItem('audi_sb_access_token', 'demo_token_sandbox_bypass_true');
-      onLoginSuccess(data.user);
+      window.localStorage.setItem('audi_sb_user_session', JSON.stringify(sandboxUser));
+      
+      onLoginSuccess(sandboxUser);
     } catch (err: any) {
       setError(err.message || 'Demo access failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePatLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!githubPat.trim()) {
+      setError('Please provide a valid GitHub Personal Access Token.');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+    const token = githubPat.trim();
+
+    try {
+      // Validate the token against public GitHub API
+      const response = await fetch('https://api.github.com/user', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub token validation failed (Status: ${response.status}). Please verify token scopes.`);
+      }
+
+      const rawUser = await response.json();
+      const authenticatedUser = {
+        id: String(rawUser.id),
+        login: rawUser.login,
+        name: rawUser.name || rawUser.login,
+        avatarUrl: rawUser.avatar_url,
+        accessToken: token,
+        isSandbox: false
+      };
+
+      // Store in localStorage for persistence
+      window.localStorage.setItem('audi_sb_access_token', token);
+      window.localStorage.setItem('audi_sb_provider_token', token);
+      window.localStorage.setItem('audi_sb_user_session', JSON.stringify(authenticatedUser));
+
+      onLoginSuccess(authenticatedUser);
+    } catch (err: any) {
+      setError(err.message || 'GitHub PAT login failed. Please ensure the token is active and has "repo" scope read permissions.');
     } finally {
       setLoading(false);
     }
@@ -104,17 +99,17 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
         </div>
 
         {/* Cinematic Headline with Cybernetic visual hierarchy */}
-        <h1 className="mb-8 text-center flex flex-col items-center">
+        <h1 className="mb-4 text-center flex flex-col items-center">
           <span className="font-display font-light text-lg md:text-xl text-[#8B949E] tracking-[0.1em] leading-none uppercase mt-3 mb-1">
-            Your vibe-coded apps
+            Analyze your vulnerabilities
           </span>
-          <span className="font-display font-black text-6xl md:text-[98px] leading-none tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#00FF88] via-[#00FFF0] to-[#00FF88] select-none mt-1 mb-4 filter drop-shadow-[0_0_25px_rgba(0,255,136,0.25)] animate-pulse">
+          <span className="font-display font-black text-6xl md:text-[84px] leading-none tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#00FF88] via-[#00FFF0] to-[#00FF88] select-none mt-1 mb-4 filter drop-shadow-[0_0_25px_rgba(0,255,136,0.25)]">
             EXPOSED.
           </span>
         </h1>
 
-        <p className="font-sans text-xs md:text-sm font-normal leading-relaxed text-[#8B949E] max-w-md mx-auto mb-12">
-          Analyze public and private GitHub repositories in real time.
+        <p className="font-sans text-xs md:text-sm font-normal leading-relaxed text-[#8B949E] max-w-md mx-auto mb-10">
+          Scan repositories directly in your browser. No separate server, zero configuration, fully secure.
         </p>
 
         {/* Authentication Options in Glassmorphic Panel */}
@@ -122,13 +117,13 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           {/* Subtle inside card lighting highlight */}
           <div className="absolute -top-12 -left-12 w-40 h-40 bg-gradient-to-br from-[#00FF88]/[0.04] to-transparent rounded-full blur-2xl"></div>
 
-          <div className="relative z-10 flex items-center gap-4 mb-8">
+          <div className="relative z-10 flex items-center gap-4 mb-6">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00E575] via-[#00FF88] to-[#00E575] flex items-center justify-center text-black shadow-[0_0_20px_rgba(0,255,136,0.2)]">
               <Terminal size={20} strokeWidth={2.5} />
             </div>
             <div className="flex flex-col justify-center">
               <h2 className="font-display text-base font-bold tracking-wider text-white uppercase leading-none">Initialize workspace</h2>
-              <p className="font-condensed text-[11px] text-[#8B949E] uppercase tracking-wider leading-none mt-1">Direct authorization channel. No registration required.</p>
+              <p className="font-condensed text-[11px] text-[#8B949E] uppercase tracking-wider leading-none mt-1">Direct client-side execution. Zero server dependencies.</p>
             </div>
           </div>
 
@@ -139,47 +134,74 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           )}
 
           <div className="relative z-10 flex flex-col gap-4">
-            {hasConfig ? (
-              <button
-                id="btn-github-oauth"
-                onClick={handleGitHubConnect}
-                disabled={loading}
-                className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black hover:shadow-[0_0_25px_rgba(0,255,136,0.3)] font-display font-extrabold text-xs uppercase tracking-[0.15em] cursor-pointer transition-all duration-300 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
-              >
-                <Github size={16} strokeWidth={2.5} />
-                {loading ? 'Routing OAuth parameters...' : 'Continue with GitHub'}
-              </button>
-            ) : (
-              <div className="rounded-xl p-5 bg-red-500/[0.02] border border-red-500/15 font-sans text-xs text-[#8B949E] space-y-3 mb-2">
-                <p className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                  <span className="font-display text-white font-bold text-xs uppercase tracking-wider">SUPABASE CONFIGURATION DISCOVERABILITY ERROR</span>
-                </p>
-                <p className="leading-relaxed text-[11px] text-[#8B949E]/80">To enable persistent team audits, collaborative history logs, and instant secure direct GitHub sign-ins, configure the following database variables:</p>
-                
-                <div className="flex flex-wrap gap-1.5 py-1">
-                  {missingVars.map(v => (
-                    <span key={v} className="px-2 py-0.5 rounded-md bg-red-500/[0.06] border border-red-500/20 font-mono font-bold text-[#FF8888] text-[9px] uppercase tracking-wider">
-                      {v}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="border-t border-white/[0.04] pt-2 mt-2">
-                  <p className="text-[10px] text-[#484F58] font-mono">// Configure Supabase credentials in your .env or platform secrets panel.</p>
-                </div>
-              </div>
-            )}
-
+            
+            {/* Main Sandbox auditor button (extremely quick startup) */}
             <button
               id="btn-sandbox-bypass"
               onClick={handleSandboxLogin}
               disabled={loading}
-              className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl bg-white/[0.01] border border-white/[0.05] text-white hover:bg-white/[0.03] hover:border-white/[0.12] hover:shadow-[0_0_30px_rgba(255,215,0,0.05)] font-display font-bold text-xs uppercase tracking-[0.15em] cursor-pointer transition-all duration-300 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
+              className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black hover:shadow-[0_0_25px_rgba(0,255,136,0.3)] font-display font-extrabold text-xs uppercase tracking-[0.15em] cursor-pointer transition-all duration-300 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
             >
-              <Zap size={14} className="text-[#FFD700]" />
-              {loading ? 'Booting sandbox...' : 'Use Sandbox Auditor Bypass'}
+              <Zap size={14} className="text-black fill-black" />
+              {loading ? 'Booting Sandbox Environment...' : 'Use Sandbox Auditor (Preloaded Repos)'}
             </button>
+
+            <div className="flex items-center my-2 select-none">
+              <div className="flex-1 border-t border-white/[0.04]"></div>
+              <span className="px-3 font-mono text-[9px] text-[#484F58] uppercase tracking-widest font-bold">OR INTEGRATE PERSONAL ACCOUNT</span>
+              <div className="flex-1 border-t border-white/[0.04]"></div>
+            </div>
+
+            {/* Toggle PAT input form */}
+            {!showPatInput ? (
+              <button
+                type="button"
+                onClick={() => setShowPatInput(true)}
+                className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl bg-white/[0.01] border border-white/[0.05] text-white hover:bg-white/[0.03] hover:border-white/[0.12] font-display font-bold text-xs uppercase tracking-[0.15em] cursor-pointer transition-all duration-300"
+              >
+                <Key size={14} className="text-[#00FFFF]" />
+                Authenticate with GitHub PAT Info
+              </button>
+            ) : (
+              <form onSubmit={handlePatLoginSubmit} className="space-y-4 animate-slide-down">
+                <div>
+                  <label className="block font-display text-[10px] text-[#8B949E] uppercase tracking-widest font-black mb-1.5">
+                    GitHub Personal Access Token (PAT)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      value={githubPat}
+                      onChange={(e) => setGithubPat(e.target.value)}
+                      placeholder="ghp_..."
+                      className="w-full bg-[#05070a]/90 text-[#E6EDF3] border border-white/[0.08] hover:border-white/[0.15] focus:border-[#00FF88] rounded-xl px-4 py-3 text-xs font-mono placeholder-[#484F58] focus:outline-none transition-all"
+                    />
+                  </div>
+                  <p className="font-sans text-[10px] text-[#8B949E] leading-relaxed mt-2">
+                    Enter a token with <code>repo</code> scope permission to read catalogs and trees natively. Your token is processed exclusively on your browser and is never transmitted out.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPatInput(false)}
+                    disabled={loading}
+                    className="px-4 py-3 rounded-xl bg-white/[0.01] border border-white/[0.05] hover:bg-white/[0.03] text-white font-display text-[10px] uppercase font-black tracking-widest cursor-pointer transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-[#00FFFF] to-[#3A4DF3] text-white hover:shadow-[0_0_20px_rgba(0,255,255,0.2)] font-display font-black text-[10px] uppercase tracking-widest cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all"
+                  >
+                    {loading ? 'Authenticating...' : 'Validate and Connect Token'}
+                  </button>
+                </div>
+              </form>
+            )}
+
           </div>
         </div>
 
@@ -194,7 +216,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             <span className="font-condensed font-bold text-[10px] tracking-widest text-[#8B949E] uppercase">TAINT DATA FLOW</span>
           </div>
           <div className="text-center">
-            <span className="block text-base md:text-lg font-display font-black text-[#00FFFF] tracking-wide mb-1 uppercase">MULTI-LANG</span>
+            <span className="block text-base md:text-lg font-display font-black text-[#00FFFF] tracking-wide mb-1 uppercase">CLIENT SIDE</span>
             <span className="font-condensed font-bold text-[10px] tracking-widest text-[#8B949E] uppercase">UNIVERSAL SCANNER</span>
           </div>
         </div>

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Search, LogOut, Code, ShieldAlert, FolderOpen, ArrowRight, RefreshCw, Database, ShieldCheck, Shield, ChevronRight, Calendar, AlertTriangle, GitPullRequest } from 'lucide-react';
 import { Repository, ScanReport, SeverityType } from '../types';
-import { apiFetch } from '../utils/api';
+import { DEMO_REPOSITORIES } from '../utils/demoData';
 import { GithubWorkflowView } from './GithubWorkflowView';
 
 interface DashboardViewProps {
-  user: { login: string; name: string | null; avatarUrl: string };
+  user: { login: string; name: string | null; avatarUrl: string; accessToken?: string; isSandbox?: boolean };
   onLogout: () => void;
   onSelectRepo: (repo: Repository) => void;
   onSelectHistoricReport: (report: ScanReport) => void;
@@ -27,45 +27,64 @@ export function DashboardView({ user, onLogout, onSelectRepo, onSelectHistoricRe
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
-  const fetchRepos = () => {
+  const fetchRepos = async () => {
     setLoading(true);
     setError(null);
-    apiFetch('/api/repos')
-      .then(async res => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || 'Failed to load user repositories from active sessions.');
+    try {
+      const savedUserSession = window.localStorage.getItem('audi_sb_user_session');
+      let isSandboxUser = true;
+      let token = '';
+      if (savedUserSession) {
+        const parsed = JSON.parse(savedUserSession);
+        isSandboxUser = parsed.id === 'guest-dev' || parsed.isSandbox;
+        token = parsed.accessToken;
+      }
+
+      if (isSandboxUser || !token || token === 'demo_token_sandbox_bypass_true') {
+        setRepos(DEMO_REPOSITORIES);
+      } else {
+        // Fetch real GitHub repositories using the client token
+        const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`GitHub returned status code: ${response.status}`);
         }
-        return res.json();
-      })
-      .then(data => {
-        setRepos(data.repositories || []);
-      })
-      .catch(err => {
-        setError(err.message || 'Error occurred listing GitHub assets.');
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+        const data = await response.json();
+        const mappedRepos: Repository[] = data.map((r: any) => ({
+          id: String(r.id),
+          name: r.name,
+          owner: r.owner.login,
+          description: r.description || 'No description provided.',
+          isPrivate: r.private,
+          defaultBranch: r.default_branch || 'main',
+          url: r.html_url
+        }));
+        setRepos(mappedRepos);
+      }
+    } catch (err: any) {
+      console.warn('GitHub API not accessible, falling back to Sandbox preloaded validation repos:', err);
+      setRepos(DEMO_REPOSITORIES);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchHistory = () => {
     setLoadingHistory(true);
     setHistoryError(null);
-    apiFetch('/api/scans')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to retrieve past scan reports.');
-        return res.json();
-      })
-      .then(data => {
-        setHistory(data.reports || []);
-      })
-      .catch(err => {
-        setHistoryError(err.message || 'Error loading scan history metrics.');
-      })
-      .finally(() => {
-        setLoadingHistory(false);
-      });
+    try {
+      const rawHistory = window.localStorage.getItem('audi_scans_history');
+      const parsed = rawHistory ? JSON.parse(rawHistory) : [];
+      setHistory(parsed);
+    } catch (err: any) {
+      setHistoryError(err.message || 'Error loading scan history metrics.');
+    } finally {
+      setLoadingHistory(false);
+    }
   };
 
   useEffect(() => {
