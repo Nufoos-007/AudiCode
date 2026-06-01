@@ -204,7 +204,8 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '';
 
-  const parsedUrl = url.parse(req.url || '', true);
+  const resolvedUrl = req.headers['x-matched-path'] as string || req.url || '';
+  const parsedUrl = url.parse(resolvedUrl, true);
   const querySbAccessToken = parsedUrl.query.sb_access_token as string;
   const querySbProviderToken = parsedUrl.query.sb_provider_token as string;
 
@@ -612,7 +613,8 @@ export default async function handler(req: any, res: any) {
   // Polyfill response convenience methods
   enhanceResponse(res);
 
-  const parsedUrl = url.parse(req.url || '', true);
+  const resolvedUrl = req.headers['x-matched-path'] as string || req.url || '';
+  const parsedUrl = url.parse(resolvedUrl, true);
   const pathname = parsedUrl.pathname || '';
   const method = req.method || 'GET';
 
@@ -752,7 +754,9 @@ export default async function handler(req: any, res: any) {
       console.log('[GITHUB FETCH DIAGNOSTIC] Rate Limit Resource:', reposResponse.headers.get('x-ratelimit-resource'));
 
       const responseText = await reposResponse.text();
-      console.log('[GITHUB FETCH DIAGNOSTIC] Response Body (First 500 chars):', responseText.substring(0, 500));
+      console.log('[DIAGNOSTIC] reposResponse.status:', reposResponse.status);
+      console.log('[DIAGNOSTIC] reposResponse.ok:', reposResponse.ok);
+      console.log('[DIAGNOSTIC] first 500 characters of responseText:', responseText.substring(0, 500));
 
       let bodyType = 'unknown';
       let errorDetails = '';
@@ -784,7 +788,12 @@ export default async function handler(req: any, res: any) {
         throw new Error(`GitHub API error: ${reposResponse.status} ${reposResponse.statusText}. Details: ${responseText.substring(0, 200)}`);
       }
 
-      const ghRepos = JSON.parse(responseText) as any[];
+      const ghRepos = JSON.parse(responseText) as any;
+      console.log('[DIAGNOSTIC] typeof ghRepos:', typeof ghRepos);
+      console.log('[DIAGNOSTIC] Array.isArray(ghRepos):', Array.isArray(ghRepos));
+      if (ghRepos && !Array.isArray(ghRepos)) {
+        console.log('[DIAGNOSTIC] Object keys of ghRepos:', Object.keys(ghRepos).slice(0, 20));
+      }
       const repositories: Repository[] = ghRepos.map(r => ({
         id: String(r.id),
         name: r.name,
