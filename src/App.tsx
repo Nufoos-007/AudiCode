@@ -240,14 +240,9 @@ export default function App() {
                 </svg>
               </div>
             </div>
-            <div className="flex flex-col justify-center">
-              <span className="font-orbitron font-extrabold text-xl md:text-2xl text-white tracking-[0.02em] leading-none">
-                Audi<span className="text-[#00FF88]">Code</span>
-              </span>
-              <span className="hidden sm:block font-mono text-[7.5px] text-[#8B949E] uppercase tracking-wider font-semibold mt-1">
-                Your vibe code Auditor
-              </span>
-            </div>
+            <span className="font-orbitron font-extrabold text-xl md:text-2xl text-white tracking-[0.02em]">
+              Audi<span className="text-[#00FF88]">Code</span>
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04]">
