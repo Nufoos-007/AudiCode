@@ -623,11 +623,11 @@ export default async function handler(req: any, res: any) {
 
   // Apply Rate Limit on scanners
   if (pathname === '/api/scan' && method === 'POST') {
-    const limitCheck = checkRateLimit(userIp, pathname, 5, 120 * 1000);
+    const limitCheck = checkRateLimit(userIp, pathname, 20, 60 * 1000);
     if (!limitCheck.allowed) {
       res.setHeader('Retry-After', String(limitCheck.retryAfter));
       return res.status(429).json({
-        error: `Too many requests on scanning. Please try again in ${limitCheck.retryAfter} seconds.`
+        error: `Core rate limit reached. Please wait ${limitCheck.retryAfter} seconds before requesting another secure scan.`
       });
     }
   }
@@ -779,9 +779,31 @@ export default async function handler(req: any, res: any) {
       }
       
       const treeUrl = `https://api.github.com/repos/${owner}/${name}/git/trees/${resolvedBranch}?recursive=1`;
-      const treeResponse = await fetch(treeUrl, {
+      let treeResponse = await fetch(treeUrl, {
         headers: githubHeaders
       });
+
+      if (!treeResponse.ok && treeResponse.status === 404) {
+        try {
+          const detailRes = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
+            headers: githubHeaders
+          });
+          if (detailRes.ok) {
+            const detailData = await detailRes.json() as any;
+            const actualDefaultBranch = detailData.default_branch;
+            if (actualDefaultBranch && actualDefaultBranch !== resolvedBranch) {
+              console.log(`[Scan] Branch mismap detected (requested: ${resolvedBranch}, actual: ${actualDefaultBranch}). Retrying tree fetch...`);
+              resolvedBranch = actualDefaultBranch;
+              const retryTreeUrl = `https://api.github.com/repos/${owner}/${name}/git/trees/${resolvedBranch}?recursive=1`;
+              treeResponse = await fetch(retryTreeUrl, {
+                headers: githubHeaders
+              });
+            }
+          }
+        } catch (resolveErr) {
+          console.warn('[Scan] Branch auto-correction failed:', resolveErr);
+        }
+      }
 
       if (!treeResponse.ok) {
         if (treeResponse.status === 409) {

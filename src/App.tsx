@@ -274,8 +274,25 @@ export default function App() {
       .then(async (res) => {
         cleanup();
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || 'General pipeline error executing secure repository scanning.');
+          let errorMsg = 'General pipeline error executing secure repository scanning.';
+          try {
+            const text = await res.text();
+            try {
+              const body = JSON.parse(text);
+              if (body && body.error) {
+                errorMsg = body.error;
+              }
+            } catch (_) {
+              if (text && text.trim().length > 0 && text.length < 250) {
+                errorMsg = `${text.trim()} (Status: ${res.status})`;
+              } else {
+                errorMsg = `Server error (Status: ${res.status})`;
+              }
+            }
+          } catch (_) {
+            errorMsg = `Network error (Status: ${res.status})`;
+          }
+          throw new Error(errorMsg);
         }
         return res.json();
       })
