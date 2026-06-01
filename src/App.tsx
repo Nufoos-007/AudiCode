@@ -60,6 +60,8 @@ export default function App() {
   useEffect(() => {
     if (!supabaseClient) return;
 
+    let activeSessionVerified = false;
+
     // Track active auth subscription shift state
     const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event: string, session: any) => {
       console.log('App Supabase auth state change event:', event);
@@ -82,6 +84,7 @@ export default function App() {
           window.localStorage.setItem('audi_sb_provider_token', providerToken);
         }
 
+        activeSessionVerified = true;
         setUser(githubUser);
         setPage('DASHBOARD');
       } else {
@@ -104,21 +107,70 @@ export default function App() {
     });
 
     // Also verify active session from headers just in case localStorage has old values
-    const queryActiveSessionOnBoot = async () => {
+    const initializeAuth = async () => {
+      try {
+        // 1. Check if Supabase already resolved an active session (e.g. from redirect hash or storage boot)
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+          const metadata = session.user.user_metadata || {};
+          const storedProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
+          const providerToken = session.provider_token || storedProviderToken || '';
+
+          const githubUser: GitHubUser = {
+            id: session.user.id,
+            login: metadata.preferred_username || metadata.user_name || session.user.email?.split('@')[0] || 'github_user',
+            name: metadata.full_name || metadata.name || metadata.user_name || 'GitHub User',
+            avatarUrl: metadata.avatar_url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231f242c"/><path d="M50,85 C25,85 15,67 15,60 C15,53 25,43 50,43 C75,43 85,53 85,60 C85,67 75,85 50,85 Z" fill="%238b949e"/><circle cx="50" cy="27" r="14" fill="%238b949e"/></svg>',
+            accessToken: providerToken
+          };
+
+          window.localStorage.setItem('audi_sb_access_token', session.access_token);
+          if (providerToken) {
+            window.localStorage.setItem('audi_sb_provider_token', providerToken);
+          }
+
+          activeSessionVerified = true;
+          setUser(githubUser);
+          setPage('DASHBOARD');
+          return;
+        }
+      } catch (err) {
+        console.warn('Supabase initial session recovery failed or not configured, checking backend cookies fallback...', err);
+      }
+
+      // Check for guest or active bypass sessions
       try {
         const res = await apiFetch('/api/auth/session');
         const data = await res.json();
-        if (data.isAuthenticated && data.user) {
-          setUser(data.user);
-          setPage('DASHBOARD');
-        } else {
-          setPage('LOGIN');
-        }
+        
+        // Prevent overriding if an asynchronous Supabase onAuthStateChange triggered first
+        if (activeSessionVerified) return;
+
+        setUser((currentUser) => {
+          if (currentUser) {
+            // Already logged in! Do not overwrite back to Login state.
+            return currentUser;
+          }
+          if (data.isAuthenticated && data.user) {
+            setPage('DASHBOARD');
+            return data.user;
+          } else {
+            setPage('LOGIN');
+            return null;
+          }
+        });
       } catch (err) {
-        setPage('LOGIN');
+        if (!activeSessionVerified) {
+          setUser((currentUser) => {
+            if (currentUser) return currentUser;
+            setPage('LOGIN');
+            return null;
+          });
+        }
       }
     };
-    queryActiveSessionOnBoot();
+
+    initializeAuth();
 
     return () => {
       subscription.unsubscribe();

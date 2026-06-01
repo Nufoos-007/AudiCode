@@ -57,6 +57,25 @@ class ScopeStack {
   }
 }
 
+/**
+ * Calculates Shannon Entropy of a string to detect high-entropy keys/tokens with low false-positive rates
+ */
+function calculateShannonEntropy(str: string): number {
+  if (!str) return 0;
+  const len = str.length;
+  const frequencies = new Map<string, number>();
+  for (let i = 0; i < len; i++) {
+    const char = str[i];
+    frequencies.set(char, (frequencies.get(char) || 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of frequencies.values()) {
+    const p = count / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
 // Regular expressions for detecting secrets and high-entropy credentials
 const SECRET_PATTERNS = [
   {
@@ -368,7 +387,7 @@ export async function runScan(
     low: 0
   };
 
-  // 1. Dependency advisory Check (Live OSV.dev Integration)
+  // 1. Dependency advisory Check (Live OSV.dev Querybatch Integration)
   const packageJsonFiles = files.filter(f => f.path.endsWith('package.json'));
   for (const pkgFile of packageJsonFiles) {
     try {
@@ -376,187 +395,204 @@ export async function runScan(
       const allDeps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
       
       const entries = Object.entries(allDeps);
-      // Limit to at most 8 live checks for performance; the rest fall back to offline signatures of known vulnerabilities
-      const liveSubset = entries.slice(0, 8);
-      const offlineSubset = entries.slice(8);
       
-      const depQueries = liveSubset.map(async ([depName, versionSpec]) => {
+      const batchQueries = entries.map(([depName, versionSpec]) => {
         const activeVerRaw = String(versionSpec).replace(/[^0-9.]/g, '');
-        if (!activeVerRaw) return;
+        return {
+          depName,
+          versionSpec,
+          activeVerRaw,
+          queryPayload: activeVerRaw ? {
+            package: { name: depName, ecosystem: 'npm' },
+            version: activeVerRaw
+          } : null
+        };
+      });
 
+      const validQueries = batchQueries.filter(q => q.queryPayload);
+      let apiSuccess = false;
+
+      if (validQueries.length > 0) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1200);
+          const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-          const response = await fetch('https://api.osv.dev/v1/query', {
+          const response = await fetch('https://api.osv.dev/v1/querybatch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
-              package: { name: depName, ecosystem: 'npm' },
-              version: activeVerRaw
+              queries: validQueries.map(q => q.queryPayload)
             })
           });
           clearTimeout(timeoutId);
 
           if (response.ok) {
             const data = await response.json() as any;
-            if (data && data.vulns && data.vulns.length > 0) {
-              for (const vuln of data.vulns) {
-                const summary = vuln.summary || vuln.details || 'Vulnerable package dependency';
-                const severity = (vuln.database_specific?.severity || 'HIGH') as SeverityType;
-                const osvId = vuln.id || 'OSV-DEPADVISORY';
-                
-                let fixedVersionSelect = 'Unknown';
-                if (vuln.affected && Array.isArray(vuln.affected)) {
-                  for (const aff of vuln.affected) {
-                    if (aff.ranges && Array.isArray(aff.ranges)) {
-                      for (const r of aff.ranges) {
-                        if (r.events && Array.isArray(r.events)) {
-                          for (const ev of r.events) {
-                            if (ev.fixed) {
-                              fixedVersionSelect = ev.fixed;
-                              break;
+            if (data && data.results && Array.isArray(data.results)) {
+              apiSuccess = true;
+              data.results.forEach((result: any, idx: number) => {
+                const originalQuery = validQueries[idx];
+                if (!originalQuery) return;
+                const { depName, versionSpec, activeVerRaw } = originalQuery;
+
+                if (result && result.vulns && Array.isArray(result.vulns) && result.vulns.length > 0) {
+                  for (const vuln of result.vulns) {
+                    const summary = vuln.summary || vuln.details || 'Vulnerable package dependency';
+                    const severity = (vuln.database_specific?.severity || 'HIGH') as SeverityType;
+                    const osvId = vuln.id || 'OSV-DEPADVISORY';
+                    
+                    let fixedVersionSelect = 'Unknown';
+                    if (vuln.affected && Array.isArray(vuln.affected)) {
+                      for (const aff of vuln.affected) {
+                        if (aff.ranges && Array.isArray(aff.ranges)) {
+                          for (const r of aff.ranges) {
+                            if (r.events && Array.isArray(r.events)) {
+                              for (const ev of r.events) {
+                                if (ev.fixed) {
+                                  fixedVersionSelect = ev.fixed;
+                                  break;
+                                }
+                              }
                             }
+                            if (fixedVersionSelect !== 'Unknown') break;
                           }
                         }
                         if (fixedVersionSelect !== 'Unknown') break;
                       }
                     }
-                    if (fixedVersionSelect !== 'Unknown') break;
+                    if (fixedVersionSelect === 'Unknown' && activeVerRaw) {
+                      fixedVersionSelect = `^${activeVerRaw} (Patch)`;
+                    }
+
+                    findings.push({
+                      id: `VULN-DEP-${depName}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 4)}`,
+                      ruleId: 'OSV-DEPADVISORY',
+                      ruleName: `Vulnerable Package Dependency (${depName})`,
+                      severity,
+                      confidence: 'HIGH',
+                      score: severity === 'CRITICAL' ? 95 : severity === 'HIGH' ? 80 : severity === 'MEDIUM' ? 50 : 25,
+                      filePath: pkgFile.path,
+                      startLine: 1,
+                      snippet: `"${depName}": "${versionSpec}"`,
+                      description: `${summary}. Verified live via OSV.dev database tracking. Check details regarding ${osvId}.`,
+                      remediation: {
+                        beforeCode: `"${depName}": "${versionSpec}"`,
+                        afterCode: `"${depName}": "^${fixedVersionSelect !== 'Unknown' && !fixedVersionSelect.includes('Patch') ? fixedVersionSelect : activeVerRaw}" // Check latest secure releases`
+                      },
+                      affectedVersion: String(versionSpec),
+                      fixedVersion: fixedVersionSelect,
+                      dataFlowPath: [
+                        {
+                          stepIndex: 1,
+                          nodeLocation: {
+                            filePath: pkgFile.path,
+                            startLine: 1,
+                            endLine: 2,
+                            startColumn: 1,
+                            snippet: `"${depName}": "${versionSpec}"`
+                          },
+                          symbolName: depName,
+                          propagationSnippet: `Installed version: ${versionSpec}`
+                        }
+                      ]
+                    });
+
+                    const sevKey = severity.toLowerCase();
+                    if (sevKey in counts) {
+                      counts[sevKey as keyof typeof counts]++;
+                    } else {
+                      counts.high++;
+                    }
+                  }
+                } else {
+                  // If OSV had no live finding, fallback to offline manual vulnerability signatures
+                  const match = DEV_ADVISORIES.find(a => a.name === depName);
+                  if (match) {
+                    findings.push({
+                      id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
+                      ruleId: 'OSV-DEPADVISORY',
+                      ruleName: `Vulnerable Package Dependency (${depName})`,
+                      severity: match.severity,
+                      confidence: 'HIGH',
+                      score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
+                      filePath: pkgFile.path,
+                      startLine: 1,
+                      snippet: `"${depName}": "${versionSpec}"`,
+                      description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
+                      remediation: {
+                        beforeCode: `"${depName}": "${versionSpec}"`,
+                        afterCode: `"${depName}": "^${match.fixed}"`
+                      },
+                      affectedVersion: String(versionSpec),
+                      fixedVersion: match.fixed,
+                      dataFlowPath: [
+                        {
+                          stepIndex: 1,
+                          nodeLocation: {
+                            filePath: pkgFile.path,
+                            startLine: 1,
+                            endLine: 2,
+                            startColumn: 1,
+                            snippet: `"${depName}": "${versionSpec}"`
+                          },
+                          symbolName: depName,
+                          propagationSnippet: `Installed version: ${versionSpec}`
+                        }
+                      ]
+                    });
+
+                    counts[match.severity.toLowerCase() as keyof typeof counts]++;
                   }
                 }
-                if (fixedVersionSelect === 'Unknown' && activeVerRaw) {
-                  fixedVersionSelect = `^${activeVerRaw} (Patch)`;
-                }
-
-                findings.push({
-                  id: `VULN-DEP-${depName}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 4)}`,
-                  ruleId: 'OSV-DEPADVISORY',
-                  ruleName: `Vulnerable Package Dependency (${depName})`,
-                  severity,
-                  confidence: 'HIGH',
-                  score: severity === 'CRITICAL' ? 95 : severity === 'HIGH' ? 80 : severity === 'MEDIUM' ? 50 : 25,
-                  filePath: pkgFile.path,
-                  startLine: 1,
-                  snippet: `"${depName}": "${versionSpec}"`,
-                  description: `${summary}. Verified live via OSV.dev database tracking. Check details regarding ${osvId}.`,
-                  remediation: {
-                    beforeCode: `"${depName}": "${versionSpec}"`,
-                    afterCode: `"${depName}": "^${fixedVersionSelect !== 'Unknown' && !fixedVersionSelect.includes('Patch') ? fixedVersionSelect : activeVerRaw}" // Check latest secure releases`
-                  },
-                  affectedVersion: String(versionSpec),
-                  fixedVersion: fixedVersionSelect,
-                  dataFlowPath: [
-                    {
-                      stepIndex: 1,
-                      nodeLocation: {
-                        filePath: pkgFile.path,
-                        startLine: 1,
-                        endLine: 2,
-                        startColumn: 1,
-                        snippet: `"${depName}": "${versionSpec}"`
-                      },
-                      symbolName: depName,
-                      propagationSnippet: `Installed version: ${versionSpec}`
-                    }
-                  ]
-                });
-
-                const sevKey = severity.toLowerCase();
-                if (sevKey in counts) {
-                  counts[sevKey as keyof typeof counts]++;
-                } else {
-                  counts.high++;
-                }
-              }
-              return; // Matched via live database, avoid local check duplicate
+              });
             }
           }
         } catch (apiErr) {
-          console.warn(`OSV.dev API trace skipped/timed out for ${depName}, using local signature evaluation.`);
+          console.warn('OSV.dev batch API query timed out or failed, using local offline fallbacks...', apiErr);
         }
+      }
 
-        // Fallback to local signature evaluation
-        const match = DEV_ADVISORIES.find(a => a.name === depName);
-        if (match) {
-          findings.push({
-            id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
-            ruleId: 'OSV-DEPADVISORY',
-            ruleName: `Vulnerable Package Dependency (${depName})`,
-            severity: match.severity,
-            confidence: 'HIGH',
-            score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
-            filePath: pkgFile.path,
-            startLine: 1,
-            snippet: `"${depName}": "${versionSpec}"`,
-            description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
-            remediation: {
-              beforeCode: `"${depName}": "${versionSpec}"`,
-              afterCode: `"${depName}": "^${match.fixed}"`
-            },
-            affectedVersion: String(versionSpec),
-            fixedVersion: match.fixed,
-            dataFlowPath: [
-              {
-                stepIndex: 1,
-                nodeLocation: {
-                  filePath: pkgFile.path,
-                  startLine: 1,
-                  endLine: 2,
-                  startColumn: 1,
-                  snippet: `"${depName}": "${versionSpec}"`
-                },
-                symbolName: depName,
-                propagationSnippet: `Installed version: ${versionSpec}`
-              }
-            ]
-          });
+      // If API failed or was offline, perform manual local evaluations for all dependencies
+      if (!apiSuccess) {
+        for (const [depName, versionSpec] of entries) {
+          const match = DEV_ADVISORIES.find(a => a.name === depName);
+          if (match) {
+            findings.push({
+              id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
+              ruleId: 'OSV-DEPADVISORY',
+              ruleName: `Vulnerable Package Dependency (${depName})`,
+              severity: match.severity,
+              confidence: 'HIGH',
+              score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
+              filePath: pkgFile.path,
+              startLine: 1,
+              snippet: `"${depName}": "${versionSpec}"`,
+              description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
+              remediation: {
+                beforeCode: `"${depName}": "${versionSpec}"`,
+                afterCode: `"${depName}": "^${match.fixed}"`
+              },
+              affectedVersion: String(versionSpec),
+              fixedVersion: match.fixed,
+              dataFlowPath: [
+                {
+                  stepIndex: 1,
+                  nodeLocation: {
+                    filePath: pkgFile.path,
+                    startLine: 1,
+                    endLine: 2,
+                    startColumn: 1,
+                    snippet: `"${depName}": "${versionSpec}"`
+                  },
+                  symbolName: depName,
+                  propagationSnippet: `Installed version: ${versionSpec}`
+                }
+              ]
+            });
 
-          counts[match.severity.toLowerCase() as keyof typeof counts]++;
-        }
-      });
-
-      await Promise.all(depQueries);
-
-      // Evaluate the rest of the dependencies purely using offline high-contrast signatures
-      for (const [depName, versionSpec] of offlineSubset) {
-        const match = DEV_ADVISORIES.find(a => a.name === depName);
-        if (match) {
-          findings.push({
-            id: `VULN-DEP-${depName}-${Date.now().toString(36)}`,
-            ruleId: 'OSV-DEPADVISORY',
-            ruleName: `Vulnerable Package Dependency (${depName})`,
-            severity: match.severity,
-            confidence: 'HIGH',
-            score: match.severity === 'CRITICAL' ? 95 : match.severity === 'HIGH' ? 80 : 50,
-            filePath: pkgFile.path,
-            startLine: 1,
-            snippet: `"${depName}": "${versionSpec}"`,
-            description: `${match.vuln}. Local signature audit warns that this package is insecure.`,
-            remediation: {
-              beforeCode: `"${depName}": "${versionSpec}"`,
-              afterCode: `"${depName}": "^${match.fixed}"`
-            },
-            affectedVersion: String(versionSpec),
-            fixedVersion: match.fixed,
-            dataFlowPath: [
-              {
-                stepIndex: 1,
-                nodeLocation: {
-                  filePath: pkgFile.path,
-                  startLine: 1,
-                  endLine: 2,
-                  startColumn: 1,
-                  snippet: `"${depName}": "${versionSpec}"`
-                },
-                symbolName: depName,
-                propagationSnippet: `Installed version: ${versionSpec}`
-              }
-            ]
-          });
-
-          counts[match.severity.toLowerCase() as keyof typeof counts]++;
+            counts[match.severity.toLowerCase() as keyof typeof counts]++;
+          }
         }
       }
     } catch (_) {
@@ -736,7 +772,18 @@ export async function runScan(
 
     // Firebase Rules
     if (file.path.includes('firestore.rules') || file.path.includes('database.rules.json')) {
-      if (file.content.includes('allow read, write: if true') || file.content.includes('allow read: if true') || file.content.includes('.read": "true"')) {
+      const rulesClean = file.content
+        .replace(/\/\/.*/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/#.*/g, '');
+
+      if (
+        rulesClean.includes('allow read, write: if true') || 
+        rulesClean.includes('allow read: if true') || 
+        /allow\s+(?:read|write|create|update|delete|get|list)\s*:\s*if\s+true\s*;/i.test(rulesClean) ||
+        rulesClean.includes('.read": "true"') ||
+        rulesClean.includes('.write": "true"')
+      ) {
         findings.push({
           id: `FIREBASE-OPEN-RULES-${file.path.replace(/[^a-zA-Z0-9]/g, '-')}`,
           ruleId: 'FIREBASE-OPEN-RULES',
@@ -1008,9 +1055,13 @@ export async function runScan(
       }
 
       // 10. AUTH-MISSING-OWNERSHIP
+      const isSqlOrSupabaseQuery = lineStr.toLowerCase().includes('select * from') || lineStr.toLowerCase().includes('supabase.from');
+      const hasSpecificUserCheck = lineStr.toLowerCase().includes('user_id') || lineStr.toLowerCase().includes('userid') || lineStr.toLowerCase().includes('createdby') || lineStr.toLowerCase().includes('owner_id') || lineStr.toLowerCase().includes('eq(\'user_id\'');
+      const isKnownPublicResource = /['"(](?:settings|config|configuration|metadata|products|items|category|categories|posts|genres|pricing|plans|features|public_)/i.test(lineStr);
       if (
-        (lineStr.toLowerCase().includes('select * from') || lineStr.toLowerCase().includes('supabase.from')) &&
-        !lineStr.toLowerCase().includes('user_id') &&
+        isSqlOrSupabaseQuery &&
+        !hasSpecificUserCheck &&
+        !isKnownPublicResource &&
         (file.path.includes('api') || file.path.includes('server') || file.path.includes('routes'))
       ) {
         findings.push({
@@ -1062,8 +1113,10 @@ export async function runScan(
       }
 
       // 12. SEC-EXPOSED-AI-KEY
+      const hasAiKeyKeyword = lineStr.includes('VITE_OPENAI') || lineStr.includes('VITE_GEMINI');
+      const hasSkTokenMatch = /sk-(?:proj-)?[a-zA-Z0-9-_]{20,}/.test(lineStr);
       if (
-        (lineStr.includes('sk-') || lineStr.includes('VITE_OPENAI') || lineStr.includes('VITE_GEMINI')) &&
+        (hasAiKeyKeyword || hasSkTokenMatch) &&
         !file.path.includes('.env') &&
         !file.path.includes('server') &&
         !file.path.includes('api')
@@ -1077,10 +1130,10 @@ export async function runScan(
            score: 95,
            filePath: file.path,
            startLine: curLineIdx + 1,
-           snippet: lineStr.trim().replace(/sk-[a-zA-Z0-9]{20,}/g, 'sk-••••••••••••••••'),
+           snippet: lineStr.trim().replace(/sk-(?:proj-)?[a-zA-Z0-9-_]{20,}/g, 'sk-••••••••••••••••'),
            description: 'Commitment of OpenAI or Gemini keys inside client bundles leads to severe billing hijack, usage limits exhaustion, and system usage exposure.',
            remediation: {
-             beforeCode: lineStr.trim().replace(/sk-[a-zA-Z0-9]{20,}/g, 'sk-••••••••••••••••'),
+             beforeCode: lineStr.trim().replace(/sk-(?:proj-)?[a-zA-Z0-9-_]{20,}/g, 'sk-••••••••••••••••'),
              afterCode: `const key = process.env.GEMINI_API_KEY; // Restrict client side access`
            },
            dataFlowPath: []
@@ -1110,6 +1163,26 @@ export async function runScan(
             matchedVal.includes('>')
           ) {
             continue;
+          }
+
+          // If it is a generic secret, double verify with a Shannon Entropy check to filter out plain prose or low-entropy matching words
+          if (secretRule.id === 'SEC-GENERIC-SECRET') {
+            const entropy = calculateShannonEntropy(matchedVal);
+            const isTypicalCommonWord = matchedVal.toLowerCase().includes('demo') || 
+                                       matchedVal.toLowerCase().includes('mock') || 
+                                       matchedVal.toLowerCase().includes('test') || 
+                                       matchedVal.toLowerCase().includes('dummy') || 
+                                       matchedVal.toLowerCase().includes('fake') || 
+                                       matchedVal.toLowerCase().includes('bypass') || 
+                                       matchedVal.toLowerCase().includes('endpoint') || 
+                                       matchedVal.toLowerCase().includes('session') ||
+                                       matchedVal.toLowerCase().includes('database') ||
+                                       matchedVal.toLowerCase().includes('password') ||
+                                       matchedVal.toLowerCase().includes('secret');
+
+            if (entropy < 3.2 || isTypicalCommonWord) {
+              continue; // skip low-entropy values as false positives
+            }
           }
 
           findings.push({
