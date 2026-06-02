@@ -1,53 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Terminal, RefreshCw, Cpu, Database, CheckSquare, Sparkles } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
-import { ReportView } from './components/ReportView';
-import { GitHubUser, Repository, ScanReport } from './types';
+import { GitHubUser } from './types';
 import { getSupabase } from './supabase';
 import { apiFetch } from './utils/api';
 
-type PageState = 'INITIAL_CHECK' | 'LOGIN' | 'DASHBOARD' | 'SCANNING' | 'REPORT';
+type PageState = 'INITIAL_CHECK' | 'LOGIN' | 'DASHBOARD';
 
 export default function App() {
   const [page, setPage] = useState<PageState>('INITIAL_CHECK');
   const [user, setUser] = useState<GitHubUser | null>(null);
-  const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
-  const [scanReport, setScanReport] = useState<ScanReport | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-
-  // Reactive scanning progress states from SSE
-  const [scanProgress, setScanProgress] = useState<{
-    status: 'connecting' | 'indexing' | 'fetching' | 'scanning' | 'done' | 'error';
-    filesDiscovered: number;
-    filesScanned: number;
-    currentFile: string;
-    percentage: number;
-  }>({
-    status: 'connecting',
-    filesDiscovered: 0,
-    filesScanned: 0,
-    currentFile: 'Establishing secure communication...',
-    percentage: 5
-  });
-
-  const getStageFromStatus = (status: string) => {
-    switch (status) {
-      case 'connecting': return 0;
-      case 'indexing': return 1;
-      case 'fetching': return 2;
-      case 'scanning': return 3;
-      case 'done': return 4;
-      default: return 0;
-    }
-  };
-
-  const scanStages = [
-    { label: 'Initializing Secure Pipeline', desc: 'Establishing token channels and parsing repository parameters...', icon: <Database className="text-[#00FF88]" size={16} /> },
-    { label: 'Ingesting Directory Trees', desc: 'Recursively scanning branch directories, stripping node_modules, dist, and locking paths...', icon: <Database className="text-[#00FF88]" size={16} /> },
-    { label: 'Retrieving Source Code Files', desc: 'Sequentially buffer downloading plain-text source files under 50KB...', icon: <Cpu className="text-[#00FF88]" size={16} /> },
-    { label: 'Taint Propagation and Scanning Engine', desc: 'Tracing unvalidated inputs through symbol flow states and hardcoded token matching...', icon: <Terminal className="text-[#00FF88]" size={16} /> }
-  ];
 
   const [supabaseClient, setSupabaseClient] = useState<any>(null);
 
@@ -66,8 +29,8 @@ export default function App() {
       
       if (session) {
         const metadata = session.user.user_metadata || {};
-        // Recover provider token only if genuinely present in the active session; do not fall back to stale/untrusted localStorage
-        const providerToken = session.provider_token || '';
+        // Recover provider token from session, falling back to localStorage if it is absent (as Supabase does not persist transient provider_token in the stored session across page reloads)
+        const providerToken = session.provider_token || window.localStorage.getItem('audi_sb_provider_token') || '';
 
         if (!providerToken) {
           console.warn('[AUTH] Provider token missing in active session. Evicting stale caches and triggering clean re-authentication.');
@@ -183,125 +146,14 @@ export default function App() {
     }
 
     setUser(null);
-    setSelectedRepo(null);
-    setScanReport(null);
     setPage('LOGIN');
   };
 
-  const triggerScan = (repo: Repository) => {
-    setSelectedRepo(repo);
-    setPage('SCANNING');
-    setScanError(null);
-    setScanProgress({
-      status: 'connecting',
-      filesDiscovered: 0,
-      filesScanned: 0,
-      currentFile: 'Establishing pipeline server connection...',
-      percentage: 5
-    });
-
-    let currentPct = 5;
-    let status: 'connecting' | 'indexing' | 'fetching' | 'scanning' = 'connecting';
-    let currentFileText = 'Establishing secure pipeline...';
-
-    const progressInterval = setInterval(() => {
-      if (currentPct < 95) {
-        // Smoothly accelerate then decelerate
-        const increment = currentPct < 40 ? 5 : currentPct < 75 ? 3 : 1;
-        currentPct = Math.min(95, currentPct + increment);
-
-        if (currentPct <= 15) {
-          status = 'connecting';
-          currentFileText = 'Resolving default branch of remote repository...';
-        } else if (currentPct <= 45) {
-          status = 'indexing';
-          currentFileText = 'Mapping Git structures recursively and filtering out noise paths...';
-        } else if (currentPct <= 75) {
-          status = 'fetching';
-          currentFileText = 'Retrieving source files context under 50KB...';
-        } else {
-          status = 'scanning';
-          currentFileText = 'Parsing Javascript AST nodes, inspecting RLS, CORS & API patterns...';
-        }
-
-        setScanProgress({
-          status,
-          filesDiscovered: repo.isPrivate ? 12 : 36,
-          filesScanned: Math.max(1, Math.floor((currentPct / 100) * 12)),
-          currentFile: currentFileText,
-          percentage: currentPct
-        });
-      }
-    }, 120);
-
-    const cleanup = () => {
-      clearInterval(progressInterval);
-    };
-
-    apiFetch('/api/scan', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        repositoryId: repo.id,
-        owner: repo.owner,
-        name: repo.name,
-        defaultBranch: repo.defaultBranch || 'main'
-      })
-    })
-      .then(async (res) => {
-        cleanup();
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || 'General pipeline error executing secure repository scanning.');
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (data.code === 'EMPTY_REPO' || data.type === 'empty_repo') {
-          setScanError(`EMPTY_REPO: ${data.message || 'Repository is empty or default branch has not been initialized.'}`);
-        } else if (data.report) {
-          setScanProgress({
-            status: 'done',
-            filesDiscovered: data.report.totalFilesScanned || 24,
-            filesScanned: data.report.totalFilesScanned || 24,
-            currentFile: 'Scan compilation completed successfully.',
-            percentage: 100
-          });
-          setScanReport(data.report);
-          setPage('REPORT');
-        } else {
-          throw new Error('Malformed scanning response parsed.');
-        }
-      })
-      .catch((err) => {
-        cleanup();
-        console.error('Core scan flow failure:', err);
-        setScanError(err.message || 'A critical error occurred while attempting the serverless repository scan.');
-      });
-  };
-
-  const handleSelectHistoricReport = (report: ScanReport) => {
-    const repo: Repository = {
-      id: report.repositoryId,
-      name: report.repositoryName,
-      owner: report.repositoryOwner,
-      description: 'Historical scan session accessed from database.',
-      isPrivate: false,
-      defaultBranch: 'main',
-      url: `https://github.com/${report.repositoryOwner}/${report.repositoryName}`
-    };
-    setSelectedRepo(repo);
-    setScanReport(report);
-    setPage('REPORT');
-  };
-
   return (
-    <div className="min-h-screen bg-transparent flex flex-col relative">
+    <div className="min-h-screen bg-transparent flex flex-col relative text-[#E6EDF3] bg-[#0d1117] selection:bg-[#00FF88]/30 selection:text-white">
       
       {/* Universal Top Nav Indicator with glowing status */}
-      <nav className="border-b border-white/[0.04] h-16 flex items-center justify-between px-6 bg-[#05070a]/40 backdrop-blur-xl sticky top-0 z-40 w-full">
+      <nav className="border-b border-white/[0.04] h-16 flex items-center justify-between px-6 bg-[#05070a]/40 backdrop-blur-xl sticky top-0 z-40 w-full font-sans">
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
           <div 
             onClick={() => { if (user) setPage('DASHBOARD'); }}
@@ -316,14 +168,14 @@ export default function App() {
                 </svg>
               </div>
             </div>
-            <span className="font-orbitron font-extrabold text-xl md:text-2xl text-white tracking-[0.02em]">
+            <span className="font-extrabold text-xl md:text-2xl text-white tracking-[0.02em]">
               Audi<span className="text-[#00FF88]">Code</span>
             </span>
           </div>
 
           <div className="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] shadow-[0_0_8px_#00FF88]"></span>
-            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold">Active Pipeline</span>
+            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold">Active Session</span>
           </div>
         </div>
       </nav>
@@ -345,187 +197,15 @@ export default function App() {
           <DashboardView
             user={user}
             onLogout={handleLogout}
-            onSelectRepo={triggerScan}
-            onSelectHistoricReport={handleSelectHistoricReport}
-          />
-        )}
-
-        {page === 'SCANNING' && selectedRepo && (
-          <div className="flex-1 flex flex-col items-center justify-center px-4 max-w-xl mx-auto py-12 animate-fade-in min-h-[60vh] w-full">
-            
-            {scanError ? (
-              scanError.startsWith('EMPTY_REPO:') ? (
-                <div className="glass-card border border-[#00FF88]/20 p-8 rounded-2xl text-center w-full shadow-2xl">
-                  <Terminal className="text-[#00FF88] mx-auto mb-4 animate-pulse" size={36} />
-                  <h3 className="font-display text-sm font-black text-white uppercase tracking-wider mb-2">Repository is Empty</h3>
-                  <p className="font-sans text-xs text-[#8B949E] leading-relaxed mb-6">
-                    No commits or source files were found in this repository. 
-                    <br /><br />
-                    Please push your first commit and rescan.
-                  </p>
-                  <div className="flex gap-3 justify-center">
-                    <button
-                      onClick={() => {
-                        setSelectedRepo(null);
-                        setPage('DASHBOARD');
-                      }}
-                      className="px-5 py-2.5 rounded-xl bg-white/[0.01] border border-white/[0.06] hover:bg-white/[0.04] text-[#E6EDF3] font-display text-[10px] uppercase font-black tracking-widest cursor-pointer transition-all"
-                    >
-                      Dashboard
-                    </button>
-                    <button
-                      onClick={() => triggerScan(selectedRepo)}
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black font-display text-[10px] uppercase font-black tracking-widest cursor-pointer hover:shadow-[0_0_20px_rgba(0,255,136,0.25)] transition-all"
-                    >
-                      Retry Ingestion
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="glass-card border border-red-500/20 p-8 rounded-2xl text-center w-full shadow-2xl">
-                  <ShieldAlert className="text-red-400 mx-auto mb-4 animate-bounce" size={36} />
-                  <h3 className="font-display text-sm font-black text-white uppercase tracking-wider mb-2">ANALYSIS PIPELINE FAULT</h3>
-                  <p className="font-mono text-xs text-[#8B949E] leading-relaxed mb-6">{scanError}</p>
-                  <div className="flex gap-3 justify-center">
-                    <button
-                      onClick={() => {
-                        setSelectedRepo(null);
-                        setPage('DASHBOARD');
-                      }}
-                      className="px-5 py-2.5 rounded-xl bg-white/[0.01] border border-white/[0.06] hover:bg-white/[0.04] text-[#E6EDF3] font-display text-[10px] uppercase font-black tracking-widest cursor-pointer transition-all"
-                    >
-                      Dashboard
-                    </button>
-                    <button
-                      onClick={() => triggerScan(selectedRepo)}
-                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black font-display text-[10px] uppercase font-black tracking-widest cursor-pointer hover:shadow-[0_0_20px_rgba(0,255,136,0.25)] transition-all"
-                    >
-                      Retry Ingestion
-                    </button>
-                  </div>
-                </div>
-              )
-            ) : (
-              <div className="w-full text-center space-y-8">
-                <div>
-                  {/* Loader animation details */}
-                  <div className="relative w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-                    <div className="absolute inset-0 border-[3px] border-[#00FF88]/10 rounded-full"></div>
-                    <div className="absolute inset-0 border-[3px] border-[#00FF88] border-t-transparent rounded-full animate-spin"></div>
-                    <div className="absolute inset-3 bg-gradient-to-tr from-[#00FF88]/5 to-transparent rounded-full animate-pulse"></div>
-                    <Terminal size={22} className="text-[#00FF88] relative z-10" />
-                  </div>
-
-                  <span className="font-condensed text-[10px] text-[#00FF88] uppercase tracking-[0.25em] font-black px-4 py-1.5 rounded-xl bg-[#00FF88]/[0.02] border border-[#00FF88]/30 shadow-[0_0_15px_rgba(0,255,136,0.03)]">// SECURE PIPELINE INTEGRATOR</span>
-                  <h3 className="font-display text-2xl font-black text-white uppercase tracking-wider leading-none mt-5 mb-1.5">
-                    Analyzing {selectedRepo.name}
-                  </h3>
-                  <p className="font-condensed text-xs text-[#8B949E] uppercase tracking-widest font-bold">@{selectedRepo.owner} · compiling AST flow graphs</p>
-                </div>
-
-                {/* Progress bar visual container */}
-                <div className="glass-card rounded-2xl p-6 shadow-3xl text-left space-y-5 border border-white/[0.03]">
-                  <div>
-                    <div className="flex justify-between items-center mb-2.5">
-                      <span className="font-display text-[10px] text-white/95 font-black uppercase tracking-wider">Compilation Progress</span>
-                      <span className="font-tech text-xs text-[#00FF88] font-bold">{scanProgress.percentage}%</span>
-                    </div>
-                    <div className="w-full bg-[#0B0F13] h-2 rounded-full overflow-hidden border border-white/[0.03]">
-                      <div 
-                        className="bg-gradient-to-r from-[#00FF88] to-[#00E575] h-full rounded-full transition-all duration-300 shadow-[0_0_8px_#00FF88]"
-                        style={{ width: `${scanProgress.percentage}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {/* Quantitative Stats boxes */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-[#03060a]/50 border border-white/[0.03] rounded-xl p-4 text-center">
-                      <span className="block font-display font-black text-xl text-white tracking-widest">
-                        {scanProgress.filesDiscovered}
-                      </span>
-                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold">Files Discovered</span>
-                    </div>
-                    <div className="bg-[#03060a]/50 border border-white/[0.03] rounded-xl p-4 text-center">
-                      <span className="block font-display font-black text-xl text-white tracking-widest">
-                        {scanProgress.filesScanned}
-                      </span>
-                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold">Parsed AST Nodes</span>
-                    </div>
-                  </div>
-
-                  {/* Active node scroll indicator */}
-                  <div className="space-y-1.5 rounded-xl bg-[#030508]/60 border border-white/[0.03] p-4 text-left">
-                    <span className="block font-condensed text-[9px] text-[#8B949E] uppercase tracking-[0.16em] font-bold">Active AST Scope Stream</span>
-                    <div className="font-tech text-[10px] text-[#00FF88] truncate select-all leading-none py-0.5">
-                      <span className="text-[#8B949E] mr-2 select-none">$</span>
-                      {scanProgress.currentFile || 'Buffering semantic scope thread...'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Progress Steps Status display */}
-                <div className="glass-card rounded-2xl p-6 text-left space-y-4 shadow-3xl border border-white/[0.03]">
-                  {scanStages.map((stage, idx) => {
-                    const stageIndex = getStageFromStatus(scanProgress.status);
-                    const isActive = idx === stageIndex;
-                    const isCompleted = idx < stageIndex;
-                    
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex items-start gap-4 transition-opacity duration-300 ${
-                          isActive ? 'opacity-100' : isCompleted ? 'opacity-55' : 'opacity-15'
-                        }`}
-                      >
-                        <div className="mt-0.5 flex-shrink-0">
-                          {isCompleted ? (
-                            <span className="w-4 h-4 rounded-full bg-[#00FF88]/10 border border-[#00FF88]/40 flex items-center justify-center font-mono text-[9px] text-[#00FF88] font-bold">✓</span>
-                          ) : isActive ? (
-                            <span className="w-4 h-4 rounded-full border border-[#00FF88] flex items-center justify-center relative">
-                              <span className="absolute w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-ping"></span>
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88]"></span>
-                            </span>
-                          ) : (
-                            <span className="w-4 h-4 rounded-full border border-white/[0.08] bg-white/[0.01] flex items-center justify-center font-mono text-[9px] text-[#8B949E]">{idx + 1}</span>
-                          )}
-                        </div>
-
-                        <div>
-                          <h4 className={`font-display text-[11px] font-black uppercase tracking-widest leading-none ${isActive ? 'text-[#00FF88]' : isCompleted ? 'text-white' : 'text-[#8B949E]'}`}>
-                            {stage.label}
-                          </h4>
-                          {isActive && (
-                            <p className="font-sans text-[11px] text-[#8B949E]/90 mt-2 leading-relaxed">
-                              {stage.desc}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {page === 'REPORT' && scanReport && selectedRepo && (
-          <ReportView
-            report={scanReport}
-            onGoBack={() => { setSelectedRepo(null); setScanReport(null); setPage('DASHBOARD'); }}
-            onReScan={() => triggerScan(selectedRepo)}
-            isReScanning={page === 'SCANNING'}
           />
         )}
       </main>
 
       {/* Footer copyright indicators */}
       <footer className="border-t border-[#21262D]/40 py-6 text-center text-[10px] text-[#8B949E] font-sans">
-        <div className="font-bold uppercase tracking-wider text-[#C9D1D9]">AudiCode Security Report</div>
+        <div className="font-bold uppercase tracking-wider text-[#C9D1D9]">AudiCode Shell</div>
         <div className="text-[#484F58] mt-1 font-mono text-[9px]">
-          GENERATED ON {scanReport?.scannedAt ? new Date(scanReport.scannedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase() : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}
+          SESSION ESTABLISHED {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}
         </div>
       </footer>
     </div>
