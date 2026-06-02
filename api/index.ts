@@ -149,6 +149,7 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
       });
       if (ghUserRes.ok) {
         const ghUser = await ghUserRes.json() as any;
+        console.log('[AUTH PATH] (b) valid GitHub provider token used.');
         return {
           id: String(ghUser.id),
           login: ghUser.login,
@@ -157,9 +158,11 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
           accessToken: providerToken,
           isSandbox: false
         };
+      } else {
+        console.warn('[AUTH PATH] (c) invalid provider token (GitHub identity lookup rejected).');
       }
     } catch (ghErr) {
-      console.warn('GitHub direct session validation failed:', ghErr);
+      console.warn('[AUTH PATH] (c) invalid provider token (failed to reach provider authority):', ghErr);
     }
   }
 
@@ -176,10 +179,11 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
   try {
     const { data: { user }, error } = await supabase.auth.getUser(activeSbToken);
     if (error || !user) {
-      console.error('Supabase user fetch error:', error);
+      console.error('[AUTH PATH] (d) expired session:', error || 'No user corresponding to activeSbToken was resolved.');
       return null;
     }
 
+    console.log('[AUTH PATH] (a) valid Supabase session.');
     const metadata = user.user_metadata || {};
     return {
       id: user.id,
@@ -190,7 +194,7 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
       isSandbox: false
     };
   } catch (err) {
-    console.error('Error verifying Supabase token:', err);
+    console.error('[AUTH PATH] (d) expired session (Verification threw parsing/network exception):', err);
     return null;
   }
 }

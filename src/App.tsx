@@ -66,8 +66,22 @@ export default function App() {
       
       if (session) {
         const metadata = session.user.user_metadata || {};
-        const storedProviderToken = window.localStorage.getItem('audi_sb_provider_token') || '';
-        const providerToken = session.provider_token || storedProviderToken || '';
+        // Recover provider token only if genuinely present in the active session; do not fall back to stale/untrusted localStorage
+        const providerToken = session.provider_token || '';
+
+        if (!providerToken) {
+          console.warn('[AUTH] Provider token missing in active session. Evicting stale caches and triggering clean re-authentication.');
+          window.localStorage.removeItem('audi_sb_access_token');
+          window.localStorage.removeItem('audi_sb_provider_token');
+          try {
+            await supabaseClient.auth.signOut();
+          } catch (err) {
+            console.error('[AUTH] Sign out error:', err);
+          }
+          setUser(null);
+          setPage('LOGIN');
+          return;
+        }
 
         const githubUser: GitHubUser = {
           id: session.user.id,
@@ -78,9 +92,7 @@ export default function App() {
         };
 
         window.localStorage.setItem('audi_sb_access_token', session.access_token);
-        if (providerToken) {
-          window.localStorage.setItem('audi_sb_provider_token', providerToken);
-        }
+        window.localStorage.setItem('audi_sb_provider_token', providerToken);
 
         setUser(githubUser);
         setPage('DASHBOARD');
@@ -116,6 +128,18 @@ export default function App() {
         const res = await apiFetch('/api/auth/session');
         const data = await res.json();
         if (data.isAuthenticated && data.user) {
+          // If the backend returned a user, but it didn't verify a valid provider token (e.g., accessToken is empty or invalid):
+          if (!data.user.accessToken) {
+            console.warn('[AUTH] Boot session has no verified active provider token. Forcing clean login.');
+            window.localStorage.removeItem('audi_sb_access_token');
+            window.localStorage.removeItem('audi_sb_provider_token');
+            try {
+              await supabaseClient.auth.signOut();
+            } catch (_) {}
+            setUser(null);
+            setPage('LOGIN');
+            return;
+          }
           setUser(data.user);
           setPage('DASHBOARD');
         } else {
