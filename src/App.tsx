@@ -103,8 +103,15 @@ export default function App() {
       }
     });
 
-    // Also verify active session from headers just in case localStorage has old values
+    // Also verify active session from headers just in case localStorage has old values.
+    // To prevent a race condition during sign-in redirects, we skip backend query if we observe an incoming OAuth session in URL.
     const queryActiveSessionOnBoot = async () => {
+      const hasIncomingOAuthSession = window.location.hash.includes('access_token=') || window.location.search.includes('access_token=');
+      if (hasIncomingOAuthSession) {
+        console.log('Detected incoming OAuth redirect session. Handing auth flow to Supabase onAuthStateChange.');
+        return;
+      }
+
       try {
         const res = await apiFetch('/api/auth/session');
         const data = await res.json();
