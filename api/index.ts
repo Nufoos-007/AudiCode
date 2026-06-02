@@ -114,7 +114,7 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '';
 
-  const resolvedUrl = req.headers['x-matched-path'] as string || req.url || '';
+  const resolvedUrl = req.url || req.headers['x-matched-path'] as string || '';
   const parsedUrl = url.parse(resolvedUrl, true);
   const querySbAccessToken = parsedUrl.query.sb_access_token as string;
   const querySbProviderToken = parsedUrl.query.sb_provider_token as string;
@@ -568,7 +568,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const resolvedUrl = req.headers['x-matched-path'] as string || req.url || '';
+  const resolvedUrl = req.url || req.headers['x-matched-path'] as string || '';
   const parsedUrl = url.parse(resolvedUrl, true);
   const pathname = parsedUrl.pathname || '';
 
