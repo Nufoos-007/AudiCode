@@ -76,17 +76,33 @@ export function DashboardView({ user, onLogout }: DashboardViewProps) {
     setLoading(true);
     setError(null);
     setIsIntegrationRequired(false);
+
+    const sbAccessToken = window.localStorage.getItem('audi_sb_access_token');
+    const sbProviderToken = window.localStorage.getItem('audi_sb_provider_token');
+    console.log('[FRONTEND DIAGNOSTIC] fetchRepos start - audi_sb_access_token exists:', !!sbAccessToken);
+    console.log('[FRONTEND DIAGNOSTIC] fetchRepos start - audi_sb_provider_token exists:', !!sbProviderToken);
+
     try {
       const res = await apiFetch('/api/repos');
+      const resClone = res.clone();
+      const responseBodyText = await resClone.text();
+
+      console.log('[FRONTEND DIAGNOSTIC] /api/repos response status:', res.status);
+      console.log('[FRONTEND DIAGNOSTIC] /api/repos response body:', responseBodyText);
+
       if (!res.ok) {
-        const dataJson = await res.json().catch(() => ({}));
+        let dataJson: any = {};
+        try {
+          dataJson = JSON.parse(responseBodyText);
+        } catch (_) {}
+
         if (dataJson.code === 'INTEGRATION_REQUIRED') {
           setIsIntegrationRequired(true);
           throw new Error('Your GitHub connection has expired or is disconnected. Please reconnect GitHub to continue.');
         }
         throw new Error(dataJson.error || `Failed to load repositories: ${res.statusText}`);
       }
-      const data = await res.json();
+      const data = JSON.parse(responseBodyText);
       setRepos(data.repositories || []);
     } catch (err: any) {
       console.error('[DASHBOARD] error loading repos:', err);

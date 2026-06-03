@@ -69,6 +69,7 @@ async function getAuthenticatedUser(req: any): Promise<AuthUser | null> {
           'User-Agent': 'AudiCode-Scanner'
         }
       });
+      console.log('[DIAGNOSTIC] GitHub /user request status:', ghUserRes.status, 'ok:', ghUserRes.ok);
       if (ghUserRes.ok) {
         const ghUser = await ghUserRes.json() as any;
         console.log('[AUTH PATH] Valid GitHub provider token resolved.');
@@ -357,11 +358,19 @@ export default async function handler(req: any, res: any) {
 
   // 6. GET /api/repos
   if (pathname === '/api/repos' && method === 'GET') {
+    const authHeaderExists = !!req.headers.authorization;
+    const xProviderTokenExists = !!req.headers['x-provider-token'];
+    console.log('[DIAGNOSTIC] /api/repos request - Authorization header present:', authHeaderExists);
+    console.log('[DIAGNOSTIC] /api/repos request - x-provider-token header present:', xProviderTokenExists);
+
     const user = await getAuthenticatedUser(req);
     if (!user) {
+      console.log('[DIAGNOSTIC] /api/repos - No authenticated user resolved.');
       res.status(401).json({ error: 'Session required.' });
       return;
     }
+
+    console.log('[DIAGNOSTIC] resolved user fields: id:', user.id, 'login:', user.login, 'name:', user.name, 'avatarUrl:', user.avatarUrl, 'isSandbox:', user.isSandbox, 'accessTokenPresent:', !!user.accessToken);
 
     if (user.isSandbox) {
       const sandboxRepos = [
@@ -398,6 +407,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (!user.accessToken) {
+      console.log('[DIAGNOSTIC] user has no active provider accessToken');
       res.status(401).json({
         error: 'GitHub integration disconnected',
         code: 'INTEGRATION_REQUIRED'
@@ -414,8 +424,11 @@ export default async function handler(req: any, res: any) {
         }
       });
 
+      console.log('[DIAGNOSTIC] GitHub /user/repos call response - Status code:', ghReposRes.status);
+
       if (!ghReposRes.ok) {
         const errText = await ghReposRes.text();
+        console.log('[DIAGNOSTIC] GitHub /user/repos failure response body length:', errText.length);
         console.error('[API REPOS] GitHub API error:', ghReposRes.status, errText);
         if (ghReposRes.status === 401) {
           res.status(401).json({
@@ -428,7 +441,9 @@ export default async function handler(req: any, res: any) {
         return;
       }
 
-      const ghRepos = await ghReposRes.json() as any[];
+      const responseBodyText = await ghReposRes.text();
+      console.log('[DIAGNOSTIC] GitHub /user/repos success response body length:', responseBodyText.length);
+      const ghRepos = JSON.parse(responseBodyText) as any[];
       if (!Array.isArray(ghRepos)) {
         res.status(200).json({ repositories: [] });
         return;
