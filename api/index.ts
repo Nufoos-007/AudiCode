@@ -397,6 +397,14 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    if (!user.accessToken) {
+      res.status(401).json({
+        error: 'GitHub integration disconnected',
+        code: 'INTEGRATION_REQUIRED'
+      });
+      return;
+    }
+
     try {
       const ghReposRes = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
         headers: {
@@ -409,6 +417,13 @@ export default async function handler(req: any, res: any) {
       if (!ghReposRes.ok) {
         const errText = await ghReposRes.text();
         console.error('[API REPOS] GitHub API error:', ghReposRes.status, errText);
+        if (ghReposRes.status === 401) {
+          res.status(401).json({
+            error: 'GitHub integration disconnected',
+            code: 'INTEGRATION_REQUIRED'
+          });
+          return;
+        }
         res.status(ghReposRes.status).json({ error: `GitHub API failed: ${ghReposRes.statusText}` });
         return;
       }

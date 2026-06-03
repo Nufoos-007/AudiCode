@@ -3,6 +3,7 @@ import { LogOut, ShieldCheck, Terminal, Shield, Activity, Cpu, Layers, Lock, Spa
 import { Repository, Finding, ScanResult } from '../types';
 import { apiFetch } from '../utils/api';
 import { RuleRegistryView } from './RuleRegistryView';
+import { getSupabase } from '../supabase';
 
 interface DashboardViewProps {
   user: { login: string; name: string | null; avatarUrl: string };
@@ -15,6 +16,7 @@ export function DashboardView({ user, onLogout }: DashboardViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [isIntegrationRequired, setIsIntegrationRequired] = useState<boolean>(false);
 
   // TREE RETRIEVAL & TARGET METADATA STATES
   const [treeResult, setTreeResult] = useState<any | null>(null);
@@ -54,13 +56,35 @@ export function DashboardView({ user, onLogout }: DashboardViewProps) {
       });
   };
 
+  const handleReconnectGitHub = async () => {
+    try {
+      const supabase = await getSupabase();
+      await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: window.location.origin,
+          scopes: 'repo read:user'
+        }
+      });
+    } catch (err: any) {
+      console.error('Reconnect GitHub failed:', err);
+      setError(err.message || 'Reconnect GitHub failed.');
+    }
+  };
+
   const fetchRepos = async () => {
     setLoading(true);
     setError(null);
+    setIsIntegrationRequired(false);
     try {
       const res = await apiFetch('/api/repos');
       if (!res.ok) {
-        throw new Error(`Failed to load repositories: ${res.statusText}`);
+        const dataJson = await res.json().catch(() => ({}));
+        if (dataJson.code === 'INTEGRATION_REQUIRED') {
+          setIsIntegrationRequired(true);
+          throw new Error('Your GitHub connection has expired or is disconnected. Please reconnect GitHub to continue.');
+        }
+        throw new Error(dataJson.error || `Failed to load repositories: ${res.statusText}`);
       }
       const data = await res.json();
       setRepos(data.repositories || []);
@@ -408,12 +432,21 @@ export function DashboardView({ user, onLogout }: DashboardViewProps) {
         ) : error ? (
           <div className="border border-red-500/20 bg-red-500/[0.02] rounded-xl p-6 text-center">
             <p className="text-xs text-red-400 font-mono mb-3">{error}</p>
-            <button 
-              onClick={fetchRepos}
-              className="px-4 py-2 bg-red-400/10 hover:bg-red-400/20 text-red-300 border border-red-400/20 text-[10px] uppercase font-black tracking-widest rounded-lg cursor-pointer transition-all"
-            >
-              Retry Connection
-            </button>
+            {isIntegrationRequired ? (
+              <button 
+                onClick={handleReconnectGitHub}
+                className="px-4 py-2 bg-[#00FF88]/10 hover:bg-[#00FF88]/20 text-[#00FF88] border border-[#00FF88]/30 text-[10px] uppercase font-black tracking-widest rounded-lg cursor-pointer transition-all hover:scale-[1.02]"
+              >
+                Reconnect GitHub
+              </button>
+            ) : (
+              <button 
+                onClick={fetchRepos}
+                className="px-4 py-2 bg-red-400/10 hover:bg-red-400/20 text-red-300 border border-red-400/20 text-[10px] uppercase font-black tracking-widest rounded-lg cursor-pointer transition-all"
+              >
+                Retry Connection
+              </button>
+            )}
           </div>
         ) : filteredRepos.length === 0 ? (
           <div className="border border-white/[0.02] bg-[#0d1117]/30 rounded-xl p-12 text-center">

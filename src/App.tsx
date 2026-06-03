@@ -32,20 +32,6 @@ export default function App() {
         // Recover provider token from session, falling back to localStorage if it is absent (as Supabase does not persist transient provider_token in the stored session across page reloads)
         const providerToken = session.provider_token || window.localStorage.getItem('audi_sb_provider_token') || '';
 
-        if (!providerToken) {
-          console.warn('[AUTH] Provider token missing in active session. Evicting stale caches and triggering clean re-authentication.');
-          window.localStorage.removeItem('audi_sb_access_token');
-          window.localStorage.removeItem('audi_sb_provider_token');
-          try {
-            await supabaseClient.auth.signOut();
-          } catch (err) {
-            console.error('[AUTH] Sign out error:', err);
-          }
-          setUser(null);
-          setPage('LOGIN');
-          return;
-        }
-
         const githubUser: GitHubUser = {
           id: session.user.id,
           login: metadata.preferred_username || metadata.user_name || session.user.email?.split('@')[0] || 'github_user',
@@ -91,18 +77,8 @@ export default function App() {
         const res = await apiFetch('/api/auth/session');
         const data = await res.json();
         if (data.isAuthenticated && data.user) {
-          // If the backend returned a user, but it didn't verify a valid provider token (e.g., accessToken is empty or invalid):
-          if (!data.user.accessToken) {
-            console.warn('[AUTH] Boot session has no verified active provider token. Forcing clean login.');
-            window.localStorage.removeItem('audi_sb_access_token');
-            window.localStorage.removeItem('audi_sb_provider_token');
-            try {
-              await supabaseClient.auth.signOut();
-            } catch (_) {}
-            setUser(null);
-            setPage('LOGIN');
-            return;
-          }
+          // Even if accessToken is empty or invalid, preserve the logged-in app state
+          console.log('[AUTH] Preserving authenticated app session state. GitHub connection check will run lazily.');
           setUser(data.user);
           setPage('DASHBOARD');
         } else {
