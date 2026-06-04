@@ -1,6 +1,145 @@
 /**
- * Shared Type Definitions for AudiCode Shell
+ * Shared Type Definitions for AudiCode
  */
+
+export type SeverityType = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface ASTNodeRef {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  startColumn: number;
+  snippet: string;
+}
+
+export type TaintStatus = 'UNTAINTED' | 'TAINTED' | 'SANITIZED';
+
+export interface VariableSymbol {
+  id: string;              // Unique symbol ID within scope tracking
+  name: string;            // Symbol identifier, e.g., "userData"
+  scopeId: string;         // Reference to the lexical block ID
+  status: TaintStatus;
+  originNode?: ASTNodeRef;
+  sanitizerRefs: string[]; // List of sanitizers applied to this symbol during propagation
+}
+
+export interface DFGEdge {
+  fromSymbolId: string;
+  toSymbolId: string;
+  location: ASTNodeRef;
+}
+
+export interface ScopeContext {
+  id: string;
+  parentScopeId: string | null;
+  symbols: Map<string, VariableSymbol>;
+}
+
+export interface SecurityRule {
+  id: string;
+  name: string;
+  description: string;
+  remediation: string;
+  defaultSeverity: SeverityType;
+  sources?: RegExp[];
+  sinks?: string[];      // Known sink functions
+  sanitizers?: string[];  // Known sanitizer methods
+}
+
+export interface TraceStep {
+  stepIndex: number;
+  nodeLocation: ASTNodeRef;
+  symbolName: string;
+  propagationSnippet: string;
+}
+
+export interface VulnerabilityInstance {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  severity: SeverityType;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  score: number;
+  filePath: string;
+  startLine: number;
+  snippet: string;
+  description: string;
+  remediation: {
+    beforeCode: string;
+    afterCode: string;
+  };
+  dataFlowPath: TraceStep[];
+  whyItMatters?: string;
+  attackScenario?: string;
+  recommendedFix?: string;
+  estimatedTime?: '5 min' | '15 min' | '30 min' | '1 hour+' | 'Architectural Change';
+  exploitSteps?: { step: number; description: string; impact: string }[];
+  whyItTriggered?: string;
+  confidenceScore?: number; // 40-99% based on AST, regex, correlation
+  exploitability?: SeverityType; // exploiatbility rank
+  sanitizationStatus?: 'Unsanitized' | 'Partially Sanitized' | 'Fully Sanitized';
+  affectedVersion?: string;
+  fixedVersion?: string;
+  isGroupedDep?: boolean;
+  packageName?: string;
+  ecosystem?: string;
+  advisories?: VulnerabilityInstance[];
+}
+
+export interface AttackChain {
+  id: string;
+  name: string;
+  findingsUsed: { id: string; name: string; filePath: string; startLine: number }[];
+  severity: SeverityType;
+  businessImpact: string;
+  exploitationDifficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  description: string;
+}
+
+export interface ScanReport {
+  id: string;
+  repositoryId: string;
+  repositoryName: string;
+  repositoryOwner: string;
+  scannedAt: string;
+  timeElapsedMs: number;
+  totalFilesScanned: number;
+  totalFilesDiscovered?: number;
+  score: number; // Overall repo score (0-100)
+  counts: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  findings: VulnerabilityInstance[];
+  attackChains?: AttackChain[];
+  frameworksDetected?: string[];
+  aiGeneratedProbability?: number;
+  aiRiskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  aiArchitectureQuality?: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR';
+  aiFactorsText?: string[];
+  trustScore?: number;
+  scannedFeatures?: { feature: string; status: 'Covered' | 'Not Scanned' }[];
+  scannerSelfAudit?: {
+    filesScannedList: string[];
+    filesIgnoredList: string[];
+    languagesDetected: string[];
+    frameworksDetected: string[];
+    scanDurationMs: number;
+    detectionCoveragePercent: number;
+  };
+}
+
+export interface Repository {
+  id: string;
+  name: string;
+  owner: string;
+  description: string | null;
+  isPrivate: boolean;
+  defaultBranch: string;
+  url: string;
+}
 
 export interface GitHubUser {
   id: string;
@@ -11,141 +150,7 @@ export interface GitHubUser {
   isSandbox?: boolean;
 }
 
-export interface Repository {
-  id: string;
-  name: string;
-  owner: string;
-  description: string;
-  isPrivate: boolean;
-  defaultBranch: string;
-  url: string;
-}
-
 export interface UserSession {
   user: GitHubUser | null;
   isAuthenticated: boolean;
 }
-
-export interface TreeEntry {
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  extension?: string;
-  depth: number;
-}
-
-export interface TreeResult {
-  totalEntries: number;
-  returnedEntries: number;
-  truncated: boolean;
-  entries: TreeEntry[];
-}
-
-export interface RankedTreeEntry {
-  path: string;
-  score: number;
-  reasons: string[];
-  extension?: string;
-  depth: number;
-  size?: number;
-}
-
-export interface RankingResult {
-  profile: 'quick' | 'standard' | 'deep';
-  totalEntries: number;
-  rankedEntries: number;
-  selectedEntries: RankedTreeEntry[];
-  truncated: boolean;
-  maxFilesScanned: number;
-  maxTotalBytes: number;
-  estimatedScanMs: number;
-}
-
-export interface FetchedFile {
-  path: string;
-  extension?: string;
-  size: number;
-  content: string;
-  truncatedContent: boolean;
-}
-
-export interface ContentFetchResult {
-  profile: 'quick' | 'standard' | 'deep';
-  filesRequested: number;
-  filesFetched: number;
-  bytesFetched: number;
-  truncated: boolean;
-  skippedFiles: string[];
-  files: FetchedFile[];
-}
-
-export type DetectionType = 'regex' | 'path' | 'config';
-export type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export type RuleCategory = 'secrets' | 'authentication' | 'authorization' | 'xss' | 'api-security' | 'supabase' | 'ai-security' | 'vercel';
-
-export interface Rule {
-  id: string;
-  title: string;
-  category: RuleCategory;
-  severity: RuleSeverity;
-  confidenceBase: number; // between 0.0 and 1.0
-  aiEligible: boolean;
-  appliesTo: string[]; // e.g. ['*.ts', '*.js', 'package.json'] or standard string extensions
-  description: string;
-  remediationTemplate: string;
-  detectionType: DetectionType;
-  patternString: string; // Serialized string of pattern or path or key config
-}
-
-export interface PromptPack {
-  title: string;
-  summary: string;
-  risk: string;
-  fixSteps: string[];
-  aiRepairPrompt: string;
-}
-
-export interface Finding {
-  id: string;
-  ruleId: string;
-  title: string;
-  category: RuleCategory;
-  severity: RuleSeverity;
-  confidence: number;
-  filePath: string;
-  lineStart: number;
-  lineEnd: number;
-  evidence: string;
-  explanation: string;
-  remediation: string;
-  promptPack: PromptPack;
-}
-
-export interface ScanSummary {
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
-  info: number;
-}
-
-export interface ScanScope {
-  filesScanned: number;
-  filesSkipped: number;
-  bytesScanned: number;
-  partialScan: boolean;
-  reasons: string[];
-}
-
-export interface ScanResult {
-  scanId: string;
-  profile: 'quick' | 'standard' | 'deep';
-  summary: ScanSummary;
-  scope: ScanScope;
-  findings: Finding[];
-  generatedAt: string;
-}
-
-
-
-
