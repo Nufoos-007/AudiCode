@@ -1964,8 +1964,6 @@ async function startServer() {
   });
 }
 
-if (isMainThread && !process.env.VERCEL) {
+if (isMainThread) {
   startServer();
 }
-
-export default app;

@@ -60,13 +60,6 @@ export default function App() {
   useEffect(() => {
     if (!supabaseClient) return;
 
-    // Detect if we are in the middle of a redirection holding authentication parameters
-    const hasAuthHash = window.location.hash && (
-      window.location.hash.includes('access_token=') ||
-      window.location.hash.includes('id_token=') ||
-      window.location.hash.includes('error=')
-    );
-
     // Track active auth subscription shift state
     const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(async (event: string, session: any) => {
       console.log('App Supabase auth state change event:', event);
@@ -89,12 +82,6 @@ export default function App() {
         setUser(githubUser);
         setPage('DASHBOARD');
       } else {
-        // If there is an active hash session parameter we are loading, bypass logging out / resetting state
-        if (hasAuthHash) {
-          console.log('[Auth] Detected oauth redirect hash parameters. Suspending automatic login redirect.');
-          return;
-        }
-
         // If this is currently a guest sandbox session, we do not force-evict it
         setUser((currentUser) => {
           if (currentUser?.id === 'guest-dev') {
@@ -111,11 +98,6 @@ export default function App() {
 
     // Also verify active session from headers just in case localStorage has old values
     const queryActiveSessionOnBoot = async () => {
-      // Direct pass representation
-      if (hasAuthHash) {
-        console.log('[Auth] Postponing backend active session check due to incoming URL hash credentials.');
-        return;
-      }
       try {
         const res = await apiFetch('/api/auth/session');
         const data = await res.json();
