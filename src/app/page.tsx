@@ -449,7 +449,7 @@ export default function App() {
 
       {/* Footer copyright indicators */}
       <footer className="border-t border-[#21262D]/40 py-6 text-center text-[10px] text-[#8B949E] font-sans">
-        <div className="font-bold uppercase tracking-wider text-[#C9D1D9]">AudiCode Security Report</div>
+        <div className="font-orbitron font-bold uppercase tracking-wider text-[#C9D1D9]">AudiCode Security Report</div>
         <div className="text-[#484F58] mt-1 font-mono text-[9px]">
           GENERATED ON {scanReport?.scannedAt ? new Date(scanReport.scannedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase() : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase()}
         </div>
