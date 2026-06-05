@@ -2,6 +2,8 @@
  * Next.js App Router Catch-All API Handler for AudiCode
  */
 
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import pg from 'pg';
