@@ -1,6 +1,53 @@
 import React from "react";
 import type { Metadata } from "next";
+import { 
+  Geist, 
+  Geist_Mono, 
+  Oxanium, 
+  Rajdhani, 
+  Share_Tech_Mono, 
+  Playfair_Display, 
+  Orbitron 
+} from "next/font/google";
 import "../index.css";
+
+const geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+});
+
+const oxanium = Oxanium({
+  subsets: ["latin"],
+  variable: "--font-display",
+});
+
+const rajdhani = Rajdhani({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-condensed",
+});
+
+const shareTechMono = Share_Tech_Mono({
+  subsets: ["latin"],
+  weight: ["400"],
+  variable: "--font-tech",
+});
+
+const playfairDisplay = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-serif",
+});
+
+const orbitron = Orbitron({
+  subsets: ["latin"],
+  weight: ["700", "800", "900"],
+  variable: "--font-orbitron",
+});
 
 export const metadata: Metadata = {
   title: "AudiCode - Your vibe code Auditor",
@@ -16,7 +63,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${oxanium.variable} ${rajdhani.variable} ${shareTechMono.variable} ${playfairDisplay.variable} ${orbitron.variable}`}>
       <body>
         <div id="root">
           {children}

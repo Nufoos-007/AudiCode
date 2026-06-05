@@ -236,7 +236,7 @@ export default function App() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00FF88] via-[#00F0FF] to-[#00E575] p-[1.5px] shadow-[0_0_20px_rgba(0,255,136,0.22)] flex items-center justify-center transition-all duration-300 hover:scale-105">
               <div className="w-full h-full bg-[#05070a]/90 rounded-[10px] flex items-center justify-center">
                 <svg viewBox="0 0 24 24" fill="none" className="w-[20px] h-[20px]" stroke="currentColor" strokeWidth={2.5}>
-                  <path d="M16 18l6-6-6-6" stroke="#00FF88" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="#00FF88" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="M12 2v20" stroke="#00F0FF" strokeLinecap="round" />
                   <circle cx="12" cy="12" r="3" fill="#00FF88" className="animate-pulse" />
                 </svg>
