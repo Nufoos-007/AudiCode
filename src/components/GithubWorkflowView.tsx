@@ -85,6 +85,9 @@ export function GithubWorkflowView() {
   const [prResult, setPrResult] = useState<PRAnalysisResult | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [activePrSubTab, setActivePrSubTab] = useState<'METRICS' | 'MARKDOWN'>('METRICS');
+  const [publishingComment, setPublishingComment] = useState<boolean>(false);
+  const [publishSuccessUrl, setPublishSuccessUrl] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   // Load repositories on mount
   const fetchRepositories = async () => {
@@ -178,6 +181,8 @@ export function GithubWorkflowView() {
     setAnalyzingPr(true);
     setPrError(null);
     setPrResult(null);
+    setPublishSuccessUrl(null);
+    setPublishError(null);
 
     try {
       const res = await apiFetch('/api/github/pr-analysis', {
@@ -203,6 +208,45 @@ export function GithubWorkflowView() {
       setPrError(err.message || 'Endpoint connection or validation error occurred.');
     } finally {
       setAnalyzingPr(false);
+    }
+  };
+
+  // Publish report comment directly to GitHub PR
+  const handlePublishComment = async () => {
+    if (!prResult) return;
+    const parts = prResult.repository.split('/');
+    if (parts.length !== 2) {
+      setPublishError('Invalid GitHub target repository identification format.');
+      return;
+    }
+
+    const [owner, name] = parts;
+    setPublishingComment(true);
+    setPublishError(null);
+    setPublishSuccessUrl(null);
+
+    try {
+      const res = await apiFetch('/api/github/post-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner,
+          name,
+          prNumber: prResult.prNumber,
+          markdown: prResult.markdown
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to submit comment to GitHub pull request.');
+      }
+
+      setPublishSuccessUrl(data.html_url);
+    } catch (err: any) {
+      setPublishError(err.message || 'Connection failed writing live automated PR review comments.');
+    } finally {
+      setPublishingComment(false);
     }
   };
 
@@ -516,11 +560,11 @@ export function GithubWorkflowView() {
                   <input 
                     type="text"
                     readOnly
-                    value={`[![AudiCode Security Badge](https://audicode-security.app/api/github/badge/${selectedRepo.owner}/${selectedRepo.name})](https://audicode-security.app)`}
+                    value={`[![AudiCode Security Badge](https://audicode-sigma.vercel.app/api/github/badge/${selectedRepo.owner}/${selectedRepo.name})](https://audicode-sigma.vercel.app)`}
                     className="flex-1 bg-[#090b10] border border-white/[0.06] rounded-xl font-mono text-[9.5px] py-2 px-3 text-[#E6EDF3] select-all outline-hidden"
                   />
                   <button
-                    onClick={() => copyToClipboard(`[![AudiCode Security Badge](https://audicode-security.app/api/github/badge/${selectedRepo.owner}/${selectedRepo.name})](https://audicode-security.app)`, 'BADGE')}
+                    onClick={() => copyToClipboard(`[![AudiCode Security Badge](https://audicode-sigma.vercel.app/api/github/badge/${selectedRepo.owner}/${selectedRepo.name})](https://audicode-sigma.vercel.app)`, 'BADGE')}
                     className="px-3 border border-white/[0.06] bg-[#090b10] hover:bg-white/[0.02] text-[#8B949E] hover:text-white rounded-xl transition-all font-sans text-[10px] flex items-center justify-center cursor-pointer"
                   >
                     {copiedText === 'BADGE' ? 'Copied' : <Copy size={12} />}
@@ -805,16 +849,50 @@ export function GithubWorkflowView() {
             {/* Sub-tab 2: Complete Markdown Comments */}
             {activePrSubTab === 'MARKDOWN' && (
               <div className="p-6 md:p-8 space-y-4 animate-fade-in flex flex-col h-full justify-between">
-                <div className="flex justify-between items-center bg-[#090b10] border-b border-white/[0.04] p-1.5 rounded-xl">
+                <div className="flex flex-wrap gap-2.5 justify-between items-center bg-[#090b10] border-b border-white/[0.04] p-1.5 rounded-xl">
                   <span className="font-mono text-[10px] text-[#8B949E] px-3 font-semibold">// MARKDOWN CODE COMMENT FORMAT (GITHUB COMPLIANT)</span>
-                  <button
-                    onClick={() => copyToClipboard(prResult.markdown, 'PRMRK')}
-                    className="p-2 bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black font-display text-[9.5px] uppercase font-black tracking-widest rounded-lg flex items-center gap-1.5 transition-all hover:scale-[1.01] active:scale-[0.98] select-none cursor-pointer text-center"
-                  >
-                    <Copy size={11} strokeWidth={3} />
-                    {copiedText === 'PRMRK' ? 'Copied comment!' : 'Copy markdown'}
-                  </button>
+                  <div className="flex gap-2.5">
+                    <button
+                      onClick={handlePublishComment}
+                      disabled={publishingComment}
+                      className="p-2 border border-white/[0.08] hover:border-[#00FF88]/20 bg-[#090b10] hover:bg-[#00FF88]/5 disabled:opacity-50 text-[#00FF88] font-display text-[9.5px] uppercase font-black tracking-widest rounded-lg flex items-center gap-1.5 transition-all hover:scale-[1.01] active:scale-[0.98] select-none cursor-pointer text-center"
+                    >
+                      {publishingComment ? <RefreshCw className="animate-spin" size={11} /> : <GitPullRequest size={11} />}
+                      {publishingComment ? 'Publishing comment...' : 'Publish to GitHub PR'}
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard(prResult.markdown, 'PRMRK')}
+                      className="p-2 bg-gradient-to-r from-[#00FF88] to-[#00E575] text-black font-display text-[9.5px] uppercase font-black tracking-widest rounded-lg flex items-center gap-1.5 transition-all hover:scale-[1.01] active:scale-[0.98] select-none cursor-pointer text-center"
+                    >
+                      <Copy size={11} strokeWidth={3} />
+                      {copiedText === 'PRMRK' ? 'Copied comment!' : 'Copy markdown'}
+                    </button>
+                  </div>
                 </div>
+
+                {publishSuccessUrl && (
+                  <div className="p-4 rounded-xl border border-emerald-500/10 bg-emerald-500/[0.02] flex items-center justify-between gap-4 font-sans text-xs text-emerald-400">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle size={14} className="text-[#00FF88]" />
+                      <span>Successfully published continuous compliance report to Pull Request #{prResult.prNumber}!</span>
+                    </div>
+                    <a
+                      href={publishSuccessUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3.5 py-1.5 rounded-lg border border-[#00FF88]/25 hover:bg-[#00FF88]/10 text-black hover:text-[#00FF88] bg-[#00FF88] font-display text-[9px] uppercase font-black tracking-widest transition-all duration-200 flex items-center gap-1.5 cursor-pointer text-center"
+                    >
+                      <span>View Comment</span>
+                      <ExternalLink size={10} strokeWidth={3} />
+                    </a>
+                  </div>
+                )}
+
+                {publishError && (
+                  <div className="p-4 rounded-xl border border-red-500/10 bg-red-500/[0.02] font-mono text-xs text-red-400">
+                    ⚠️ Publishing failed: {publishError}
+                  </div>
+                )}
 
                 <div className="bg-[#090b10] border border-white/[0.06] rounded-xl p-5 overflow-auto max-h-[400px] font-mono text-[11px] leading-relaxed text-[#8B949E] custom-scroller h-full max-w-full">
                   <pre className="whitespace-pre-wrap">{prResult.markdown}</pre>

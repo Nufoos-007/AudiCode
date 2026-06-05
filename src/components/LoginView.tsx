@@ -40,7 +40,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
       const { error: err } = await supabase.auth.signInWithOAuth({
         provider: 'github',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: 'https://audicode-sigma.vercel.app',
           scopes: 'repo read:user'
         }
       });

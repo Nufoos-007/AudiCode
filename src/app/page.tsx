@@ -1,11 +1,13 @@
+"use client";
+
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Terminal, RefreshCw, Cpu, Database, CheckSquare, Sparkles } from 'lucide-react';
-import { LoginView } from './components/LoginView';
-import { DashboardView } from './components/DashboardView';
-import { ReportView } from './components/ReportView';
-import { GitHubUser, Repository, ScanReport } from './types';
-import { getSupabase } from './supabase';
-import { apiFetch } from './utils/api';
+import { LoginView } from '../components/LoginView';
+import { DashboardView } from '../components/DashboardView';
+import { ReportView } from '../components/ReportView';
+import { GitHubUser, Repository, ScanReport } from '../types';
+import { getSupabase } from '../supabase';
+import { apiFetch } from '../utils/api';
 
 type PageState = 'INITIAL_CHECK' | 'LOGIN' | 'DASHBOARD' | 'SCANNING' | 'REPORT';
 
@@ -234,7 +236,7 @@ export default function App() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00FF88] via-[#00F0FF] to-[#00E575] p-[1.5px] shadow-[0_0_20px_rgba(0,255,136,0.22)] flex items-center justify-center transition-all duration-300 hover:scale-105">
               <div className="w-full h-full bg-[#05070a]/90 rounded-[10px] flex items-center justify-center">
                 <svg viewBox="0 0 24 24" fill="none" className="w-[20px] h-[20px]" stroke="currentColor" strokeWidth={2.5}>
-                  <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="#00FF88" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M16 18l6-6-6-6" stroke="#00FF88" strokeLinecap="round" strokeLinejoin="round" />
                   <path d="M12 2v20" stroke="#00F0FF" strokeLinecap="round" />
                   <circle cx="12" cy="12" r="3" fill="#00FF88" className="animate-pulse" />
                 </svg>
@@ -247,7 +249,7 @@ export default function App() {
 
           <div className="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] shadow-[0_0_8px_#00FF88]"></span>
-            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold">Active Pipeline</span>
+            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold font-sans">Active Pipeline</span>
           </div>
         </div>
       </nav>
@@ -344,7 +346,7 @@ export default function App() {
                   <h3 className="font-display text-2xl font-black text-white uppercase tracking-wider leading-none mt-5 mb-1.5">
                     Analyzing {selectedRepo.name}
                   </h3>
-                  <p className="font-condensed text-xs text-[#8B949E] uppercase tracking-widest font-bold">@{selectedRepo.owner} · compiling AST flow graphs</p>
+                  <p className="font-condensed text-xs text-[#8B949E] uppercase tracking-widest font-bold font-sans">@{selectedRepo.owner} · compiling AST flow graphs</p>
                 </div>
 
                 {/* Progress bar visual container */}
@@ -368,19 +370,19 @@ export default function App() {
                       <span className="block font-display font-black text-xl text-white tracking-widest">
                         {scanProgress.filesDiscovered}
                       </span>
-                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold">Files Discovered</span>
+                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold font-sans">Files Discovered</span>
                     </div>
                     <div className="bg-[#03060a]/50 border border-white/[0.03] rounded-xl p-4 text-center">
                       <span className="block font-display font-black text-xl text-white tracking-widest">
                         {scanProgress.filesScanned}
                       </span>
-                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold">Parsed AST Nodes</span>
+                      <span className="font-condensed text-[9px] text-[#8B949E] uppercase tracking-widest font-extrabold font-sans">Parsed AST Nodes</span>
                     </div>
                   </div>
 
                   {/* Active node scroll indicator */}
                   <div className="space-y-1.5 rounded-xl bg-[#030508]/60 border border-white/[0.03] p-4 text-left">
-                    <span className="block font-condensed text-[9px] text-[#8B949E] uppercase tracking-[0.16em] font-bold">Active AST Scope Stream</span>
+                    <span className="block font-condensed text-[9px] text-[#8B949E] uppercase tracking-[0.16em] font-bold font-sans">Active AST Scope Stream</span>
                     <div className="font-tech text-[10px] text-[#00FF88] truncate select-all leading-none py-0.5">
                       <span className="text-[#8B949E] mr-2 select-none">$</span>
                       {scanProgress.currentFile || 'Buffering semantic scope thread...'}
@@ -421,7 +423,7 @@ export default function App() {
                           </h4>
                           {isActive && (
                             <p className="font-sans text-[11px] text-[#8B949E]/90 mt-2 leading-relaxed">
-                              {stage.desc}
+                               {stage.desc}
                             </p>
                           )}
                         </div>
@@ -440,7 +442,7 @@ export default function App() {
             report={scanReport}
             onGoBack={() => { setSelectedRepo(null); setScanReport(null); setPage('DASHBOARD'); }}
             onReScan={() => triggerScan(selectedRepo)}
-            isReScanning={page === 'SCANNING'}
+            isReScanning={(page as string) === 'SCANNING'}
           />
         )}
       </main>

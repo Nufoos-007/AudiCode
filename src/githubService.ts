@@ -404,7 +404,7 @@ jobs:
           AUDICODE_API_KEY: \${{ secrets.AUDICODE_API_KEY }}
         run: |
           echo "Initiating deep static AST dataflow tracing compilation..."
-          curl -s -X POST "https://\${{ github.event.repository.homepage || 'audicode-security.app' }}/api/github/cicd-scan" \\
+          curl -s -X POST "https://\${{ github.event.repository.homepage || 'audicode-sigma.vercel.app' }}/api/github/cicd-scan" \\
             -H "Content-Type: application/json" \\
             -H "Authorization: Bearer \$AUDICODE_API_KEY" \\
             -d '{"owner": "\${{ github.repository_owner }}", "name": "\${{ github.event.repository.name }}", "prNumber": \${{ github.event.pull_request.number || 0 }}, "commitSha": "\${{ github.sha }}"}' \\
@@ -451,3 +451,36 @@ export function generateBadgeSvg(score: number): string {
   </g>
 </svg>`;
 }
+
+/**
+ * Post security report as a live comment directly to a GitHub Pull Request
+ */
+export async function publishPrComment(
+  owner: string,
+  name: string,
+  prNumber: number,
+  body: string,
+  token: string
+) {
+  const url = `https://api.github.com/repos/${owner}/${name}/issues/${prNumber}/comments`;
+  const headers: Record<string, string> = {
+    'User-Agent': 'AudiCode-Scanner',
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ body })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`GitHub API failed to post comment on PR #${prNumber}: (${res.status}) ${errText}`);
+  }
+
+  return await res.json() as { id: number; html_url: string; body: string };
+}
+

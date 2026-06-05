@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw, ShieldAlert, Sparkles, Code, FileText, ChevronDow
 import { ScanReport, VulnerabilityInstance, SeverityType } from '../types';
 import { TimelineTabView } from './TimelineTabView';
 import { ComplianceTabView } from './ComplianceTabView';
+import { apiFetch } from '../utils/api';
 
 const computeTimelineMetrics = (reports: ScanReport[]) => {
   if (reports.length === 0) {
@@ -138,6 +139,71 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
   const [activeTab, setActiveTab] = useState<'FINDINGS' | 'TIMELINE' | 'COMPLIANCE'>('FINDINGS');
   const [history, setHistory] = useState<ScanReport[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Phase 4: Automated Remediation Platform States
+  const [applyingFindingId, setApplyingFindingId] = useState<string | null>(null);
+  const [remediatedFindings, setRemediatedFindings] = useState<Set<string>>(new Set());
+  const [applyingAll, setApplyingAll] = useState(false);
+  const [bulkRemediated, setBulkRemediated] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [remediationSuccessMsg, setRemediationSuccessMsg] = useState<string | null>(null);
+
+  const handleApplySingleRemediation = async (findingId: string) => {
+    setRemediationError(null);
+    setRemediationSuccessMsg(null);
+    setApplyingFindingId(findingId);
+    try {
+      const response = await apiFetch('/api/remediations/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: report.id, findingId })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setRemediatedFindings(prev => {
+          const next = new Set(prev);
+          next.add(findingId);
+          return next;
+        });
+        setRemediationSuccessMsg(data.message || 'Remediation patch applied successfully!');
+      } else {
+        setRemediationError(data.error || 'Failed to apply remediation patch.');
+      }
+    } catch (err: any) {
+      console.error('Failed to apply remediation:', err);
+      setRemediationError(err.message || 'Failed to apply automated remediation.');
+    } finally {
+      setApplyingFindingId(null);
+    }
+  };
+
+  const handleApplyAllRemediations = async () => {
+    setRemediationError(null);
+    setRemediationSuccessMsg(null);
+    setApplyingAll(true);
+    try {
+      const response = await apiFetch('/api/remediations/apply-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: report.id })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setBulkRemediated(true);
+        // Add all finding IDs to remediated state
+        const allIds = report.findings.map(f => f.id);
+        setRemediatedFindings(new Set(allIds));
+        setRemediationSuccessMsg(data.message || 'All remediations applied successfully!');
+      } else {
+        setRemediationError(data.error || 'Failed to apply all remediation patches.');
+      }
+    } catch (err: any) {
+      console.error('Failed to apply all remediations:', err);
+      setRemediationError(err.message || 'Failed to apply codebase-wide remediations.');
+    } finally {
+      setApplyingAll(false);
+    }
+  };
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -389,6 +455,36 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
             Export JSON
           </button>
 
+          {/* Bulk Auto-Remediation Button (Phase 4) */}
+          <button
+            onClick={handleApplyAllRemediations}
+            disabled={applyingAll || bulkRemediated || report.findings.length === 0}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-display text-[9.5px] uppercase font-extrabold tracking-widest cursor-pointer transition-all duration-300 ${
+              bulkRemediated
+                ? 'bg-[#00FF88]/10 border-[#00FF88]/20 text-[#00FF88]'
+                : applyingAll
+                ? 'bg-white/[0.02] border-white/[0.05] text-[#8B949E]'
+                : 'bg-[#00FF88]/10 hover:bg-[#00FF88]/20 border-[#00FF88]/20 hover:border-[#00FF88]/30 text-[#00FF88] hover:shadow-[0_0_15px_rgba(0,255,136,0.15)] hover:scale-[1.02] active:scale-[0.98]'
+            }`}
+          >
+            {applyingAll ? (
+              <>
+                <RefreshCw size={11} strokeWidth={2.5} className="animate-spin" />
+                Fixing codebase...
+              </>
+            ) : bulkRemediated ? (
+              <>
+                <Check size={11} strokeWidth={2.5} />
+                Codebase Repaired ✓
+              </>
+            ) : (
+              <>
+                <Zap size={11} strokeWidth={2.5} className="text-[#00FF88]" />
+                Auto-Remediate All
+              </>
+            )}
+          </button>
+
           <button
             onClick={onReScan}
             disabled={isReScanning}
@@ -399,6 +495,22 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
           </button>
         </div>
       </div>
+
+      {remediationSuccessMsg && (
+        <div className="p-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.02] text-emerald-400 font-mono text-[11px] flex items-center gap-2.5 leading-relaxed mb-5 relative animate-fade-in select-all">
+          <CheckCircle size={14} className="text-[#00FF88] shrink-0" />
+          <span>⚡ <strong>Remediation Pipeline:</strong> {remediationSuccessMsg}</span>
+          <button onClick={() => setRemediationSuccessMsg(null)} className="absolute right-3 top-3 text-emerald-400/50 hover:text-emerald-400 text-xs px-1 cursor-pointer">×</button>
+        </div>
+      )}
+
+      {remediationError && (
+        <div className="p-4 rounded-xl border border-red-500/15 bg-red-500/[0.02] text-red-400 font-mono text-[11px] flex items-center gap-2.5 leading-relaxed mb-5 relative animate-fade-in select-all">
+          <AlertCircle size={14} className="text-red-400 shrink-0" />
+          <span>⚠️ <strong>Remediation Fault:</strong> {remediationError}</span>
+          <button onClick={() => setRemediationError(null)} className="absolute right-3 top-3 text-red-00/50 hover:text-red-400 text-xs px-1 cursor-pointer">×</button>
+        </div>
+      )}
 
       {/* Meta Header */}
       <section className="glass-card rounded-2xl overflow-hidden mb-5 shadow-[0_32px_80px_rgba(0,0,0,0.6)] border-white/[0.03]">
@@ -1084,6 +1196,37 @@ export function ReportView({ report, onGoBack, onReScan, isReScanning }: ReportV
                   </div>
 
                   <div className="flex items-center gap-2.5 mt-2 md:mt-0 flex-shrink-0 self-end md:self-start">
+                    {finding.remediation?.afterCode && (
+                      <button
+                        onClick={() => handleApplySingleRemediation(finding.id)}
+                        disabled={applyingFindingId === finding.id || remediatedFindings.has(finding.id)}
+                        className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-display text-[9px] uppercase font-black tracking-widest cursor-pointer transition-all duration-200 select-none border ${
+                          remediatedFindings.has(finding.id)
+                            ? 'bg-[#00FF88]/10 border-[#00FF88]/20 text-[#00FF88]'
+                            : applyingFindingId === finding.id
+                            ? 'bg-white/[0.02] border-white/[0.04] text-[#8B949E]'
+                            : 'bg-[#00FF88]/10 hover:bg-[#00FF88]/15 border-[#00FF88]/15 hover:border-[#00FF88]/30 text-[#00FF88] hover:shadow-[0_0_12px_rgba(0,255,136,0.1)] active:scale-95'
+                        }`}
+                      >
+                        {applyingFindingId === finding.id ? (
+                          <>
+                            <RefreshCw size={11} strokeWidth={3} className="animate-spin" />
+                            Applying...
+                          </>
+                        ) : remediatedFindings.has(finding.id) ? (
+                          <>
+                            <Check size={11} strokeWidth={3} />
+                            Remediated
+                          </>
+                        ) : (
+                          <>
+                            <Zap size={11} strokeWidth={3} className="text-[#00FF88]" />
+                            Apply Patch
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     <button
                       onClick={() => toggleExpand(finding.id)}
                       className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl border border-white/[0.04] bg-white/[0.01] font-display text-[9px] uppercase font-black tracking-widest text-[#8B949E] hover:text-white hover:bg-white/[0.03] hover:border-white/[0.08] cursor-pointer select-none transition-all duration-200 shadow-inner inline-flex"
