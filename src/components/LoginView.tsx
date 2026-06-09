@@ -152,7 +152,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-xl bg-white/[0.01] border border-white/[0.05] text-white hover:bg-white/[0.03] hover:border-white/[0.12] hover:shadow-[0_0_30px_rgba(255,215,0,0.05)] font-display font-bold text-xs uppercase tracking-[0.15em] cursor-pointer transition-all duration-300 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99]"
             >
               <Zap size={14} className="text-[#FFD700]" />
-              {loading ? 'Booting sandbox...' : 'Use Sandbox Auditor Bypass'}
+              {loading ? 'Booting sandbox...' : 'Use Sandbox Demo'}
             </button>
           </div>
         </div>
