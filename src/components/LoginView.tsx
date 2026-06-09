@@ -75,11 +75,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
       <div className="absolute bottom-1/4 left-1/3 w-[300px] h-[300px] bg-gradient-to-tr from-[#3A4DF3]/[0.03] to-transparent rounded-full blur-[80px] pointer-events-none z-0"></div>
 
       <div className="relative z-10 w-full max-w-2xl text-center animate-fade-in">
-        {/* Sleek Active State Indicator Badge */}
-        <div className="inline-flex items-center gap-2.5 px-5.5 py-2 mb-10 rounded-xl border border-[#00FF88]/20 bg-[#00FF88]/[0.03] font-condensed text-[11px] tracking-[0.25em] text-[#00FF88] uppercase font-bold shadow-[0_0_25px_rgba(0,255,136,0.05)]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] shadow-[0_0_8px_#00FF88] animate-pulse"></span>
-          Source-to-Sink Tracking Active
-        </div>
+
 
         {/* Cinematic Headline with Cybernetic visual hierarchy */}
         <h1 className="mb-8 text-center flex flex-col items-center">
