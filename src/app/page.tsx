@@ -249,7 +249,7 @@ export default function App() {
 
           <div className="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.02] border border-white/[0.04]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] shadow-[0_0_8px_#00FF88]"></span>
-            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold font-sans">Active Pipeline</span>
+            <span className="font-mono text-[9px] text-[#8B949E] uppercase tracking-widest font-semibold font-sans">v 1.9.5</span>
           </div>
         </div>
       </nav>

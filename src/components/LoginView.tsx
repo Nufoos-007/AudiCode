@@ -88,7 +88,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
         </h1>
 
         <p className="font-sans text-xs md:text-sm font-normal leading-relaxed text-[#8B949E] max-w-md mx-auto mb-12">
-          Analyze public and private GitHub repositories in real time.
+          Analyze public and private GitHub repositories in time.
         </p>
 
         {/* Authentication Options in Glassmorphic Panel */}
